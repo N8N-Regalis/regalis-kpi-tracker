@@ -1,7 +1,7 @@
 # Netlify serves ONLY the public/ folder (the login page). server.js, integrations/, .env,
 # secrets/ and app/ (the dashboard page) are never uploaded because they are outside the publish folder.
 #
-# NOT READY TO DEPLOY: replace BACKEND_HOST below with the real address of the Node backend first.
+# Backend: Node server on Railway (regalis-kpi-tracker-production.up.railway.app).
 # The backend must set ALLOWED_ORIGINS to the Netlify site URL and ALLOWED_HOSTS to its own hostname.
 
 [build]
@@ -12,31 +12,31 @@
 # and the login cookie keeps working. Nothing is cached.
 [[redirects]]
   from = "/api/*"
-  to = "https://BACKEND_HOST.invalid/api/:splat"
+  to = "https://regalis-kpi-tracker-production.up.railway.app/api/:splat"
   status = 200
   force = true
 
 [[redirects]]
   from = "/login"
-  to = "https://BACKEND_HOST.invalid/login"
+  to = "https://regalis-kpi-tracker-production.up.railway.app/login"
   status = 200
   force = true
 
 [[redirects]]
   from = "/logout"
-  to = "https://BACKEND_HOST.invalid/logout"
+  to = "https://regalis-kpi-tracker-production.up.railway.app/logout"
   status = 200
   force = true
 
 [[redirects]]
   from = "/"
-  to = "https://BACKEND_HOST.invalid/"
+  to = "https://regalis-kpi-tracker-production.up.railway.app/"
   status = 200
   force = true
 
 [[redirects]]
   from = "/index.html"
-  to = "https://BACKEND_HOST.invalid/"
+  to = "https://regalis-kpi-tracker-production.up.railway.app/"
   status = 200
   force = true
 
