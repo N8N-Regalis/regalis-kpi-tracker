@@ -24,18 +24,32 @@ const { calculateKpiTest } = require('./integrations/kpiTest');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const APP_DIR = path.join(__dirname, 'app');
+
+/* Local default: bound to this PC only. When hosted, set HOST=0.0.0.0, ALLOWED_HOSTS (this server's
+   hostname) and ALLOWED_ORIGINS (the Netlify site, e.g. https://regalis-kpi-tracker-v1.netlify.app). */
+const HOST = process.env.HOST?.trim() || '127.0.0.1';
+const list = value => (value || '').split(',').map(item => item.trim().toLowerCase()).filter(Boolean);
+const ALLOWED_HOSTS = ['localhost', '127.0.0.1', ...list(process.env.ALLOWED_HOSTS)];
+const ALLOWED_ORIGINS = list(process.env.ALLOWED_ORIGINS);
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+
+/* a request is accepted when it comes from this server's own page or from a listed origin */
+function originAllowed(req) {
+  const origin = req.get('origin');
+  if (!origin) return true;
+  try {
+    const url = new URL(origin);
+    return url.host === req.get('host') || ALLOWED_ORIGINS.includes(url.origin.toLowerCase());
+  } catch {
+    return false;
+  }
+}
 
 app.use('/api', (req, res, next) => {
-  const host = req.hostname;
-  const origin = req.get('origin');
-  if (!['localhost', '127.0.0.1'].includes(host)) return res.sendStatus(403);
-  if (origin) {
-    try {
-      if (new URL(origin).host !== req.get('host')) return res.sendStatus(403);
-    } catch {
-      return res.sendStatus(403);
-    }
-  }
+  if (!ALLOWED_HOSTS.includes(req.hostname.toLowerCase())) return res.sendStatus(403);
+  if (!originAllowed(req)) return res.sendStatus(403);
   res.set('Cache-Control', 'no-store');
   next();
 });
@@ -44,19 +58,12 @@ app.use('/api', (req, res, next) => {
 app.get('/login', (req, res) => {
   if (auth.sessionRole(req)) return res.redirect('/');
   res.set('Cache-Control', 'no-store');
-  res.sendFile(path.join(__dirname, 'login.html'));
+  res.sendFile(path.join(PUBLIC_DIR, 'login.html'));
 });
 
 app.post('/login', express.urlencoded({ extended: false, limit: '2kb' }), (req, res) => {
   if (!auth.configured()) return res.redirect('/login?error=setup');
-  const origin = req.get('origin');
-  if (origin) {
-    try {
-      if (new URL(origin).host !== req.get('host')) return res.sendStatus(403);
-    } catch {
-      return res.sendStatus(403);
-    }
-  }
+  if (!originAllowed(req)) return res.sendStatus(403);
   if (auth.lockedOut(req.ip)) return res.redirect('/login?error=locked');
   const role = auth.roleFor(String(req.body.password || ''));
   if (!role) {
@@ -395,9 +402,9 @@ app.get('/api/kpi-test/mna-associate', async (req, res) => {
   }
 });
 
-/* only the dashboard page is served; server code, .env and the rest of the folder are not */
-app.get(['/', '/index.html'], (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+/* the dashboard page lives in app/ and is only sent after login; nothing else in the folder is served */
+app.get(['/', '/index.html'], (req, res) => res.sendFile(path.join(APP_DIR, 'index.html')));
 
-app.listen(PORT, '127.0.0.1', () => {
+app.listen(PORT, HOST, () => {
   console.log(`KPI Dashboard: http://localhost:${PORT}`);
 });

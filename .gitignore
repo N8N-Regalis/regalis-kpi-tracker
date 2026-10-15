@@ -1,3 +1,11 @@
 node_modules/
 secrets/
 .env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+*.docx
+*.csv
+onboarding-issues.*

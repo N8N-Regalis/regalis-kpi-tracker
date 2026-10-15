@@ -12,6 +12,13 @@ const SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
 let tokenCache = null;
 
 function serviceAccount() {
+  /* hosted: the whole key JSON can be set as GOOGLE_SERVICE_ACCOUNT_JSON instead of a file */
+  const inline = process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim();
+  if (inline) {
+    const key = JSON.parse(inline);
+    if (!key.client_email || !key.private_key) throw new Error('Google service account key is invalid');
+    return key;
+  }
   const file = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
   if (!file) throw new Error('Google service account key not configured');
   const key = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8'));

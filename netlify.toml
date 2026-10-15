@@ -1,0 +1,50 @@
+# Netlify serves ONLY the public/ folder (the login page). server.js, integrations/, .env,
+# secrets/ and app/ (the dashboard page) are never uploaded because they are outside the publish folder.
+#
+# NOT READY TO DEPLOY: replace BACKEND_HOST below with the real address of the Node backend first.
+# The backend must set ALLOWED_ORIGINS to the Netlify site URL and ALLOWED_HOSTS to its own hostname.
+
+[build]
+  publish = "public"
+  command = ""
+
+# Everything that needs the Node backend is passed through, so the browser stays on one address
+# and the login cookie keeps working. Nothing is cached.
+[[redirects]]
+  from = "/api/*"
+  to = "https://BACKEND_HOST.invalid/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/login"
+  to = "https://BACKEND_HOST.invalid/login"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/logout"
+  to = "https://BACKEND_HOST.invalid/logout"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/"
+  to = "https://BACKEND_HOST.invalid/"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/index.html"
+  to = "https://BACKEND_HOST.invalid/"
+  status = 200
+  force = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"
+    Cache-Control = "no-store"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
