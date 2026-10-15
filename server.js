@@ -5,6 +5,7 @@ const express = require('express');
 const path = require('path');
 const bitrix = require('./integrations/bitrix');
 const config = require('./integrations/config');
+const auth = require('./integrations/auth');
 const notion = require('./integrations/notion');
 const sheets = require('./integrations/sheets');
 const { signedLois } = require('./integrations/signedLois');
@@ -38,6 +39,52 @@ app.use('/api', (req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
 });
+
+/* ---- login: one password for contractors (viewer), one for the admin ---- */
+app.get('/login', (req, res) => {
+  if (auth.sessionRole(req)) return res.redirect('/');
+  res.set('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'login.html'));
+});
+
+app.post('/login', express.urlencoded({ extended: false, limit: '2kb' }), (req, res) => {
+  if (!auth.configured()) return res.redirect('/login?error=setup');
+  const origin = req.get('origin');
+  if (origin) {
+    try {
+      if (new URL(origin).host !== req.get('host')) return res.sendStatus(403);
+    } catch {
+      return res.sendStatus(403);
+    }
+  }
+  if (auth.lockedOut(req.ip)) return res.redirect('/login?error=locked');
+  const role = auth.roleFor(String(req.body.password || ''));
+  if (!role) {
+    auth.recordFail(req.ip);
+    return res.redirect('/login?error=bad');
+  }
+  auth.clearFails(req.ip);
+  auth.startSession(req, res, role);
+  res.redirect('/');
+});
+
+app.post('/logout', (req, res) => {
+  auth.endSession(res);
+  res.redirect('/login');
+});
+
+/* everything below needs a session */
+app.use((req, res, next) => {
+  const role = auth.sessionRole(req);
+  if (role) {
+    req.role = role;
+    return next();
+  }
+  if (req.path.startsWith('/api')) return res.status(401).json({ error: 'Not signed in' });
+  res.redirect('/login');
+});
+
+app.get('/api/session', (req, res) => res.json({ role: req.role }));
 
 /* a KPI request can ask for another counting window, for example one quarter: ?qfrom=2026-10-01&qto=2026-12-31 */
 app.use('/api/kpi', (req, res, next) => {
@@ -348,8 +395,8 @@ app.get('/api/kpi-test/mna-associate', async (req, res) => {
   }
 });
 
-app.use('/secrets', (req, res) => res.sendStatus(404));
-app.use(express.static(path.join(__dirname)));
+/* only the dashboard page is served; server code, .env and the rest of the folder are not */
+app.get(['/', '/index.html'], (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`KPI Dashboard: http://localhost:${PORT}`);

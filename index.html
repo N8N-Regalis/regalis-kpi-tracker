@@ -448,8 +448,8 @@ table.tbl td .tag{vertical-align:middle}
     </div>
     <div class="navs" id="navs"></div>
     <div class="nf">
-      <div class="av">B24</div>
-      <div class="um"><div style="font-size:13px;font-weight:600">Bitrix24</div><div style="font-size:11.5px;color:var(--tx3)">Read-only connection</div></div>
+      <div class="av" id="roleAv">B24</div>
+      <div class="um"><div style="font-size:13px;font-weight:600" id="roleName">Bitrix24</div><div style="font-size:11.5px;color:var(--tx3)" id="roleSub">Read-only connection</div></div>
     </div>
   </aside>
   <div class="main">
@@ -463,6 +463,7 @@ table.tbl td .tag{vertical-align:middle}
       <button class="ctl" id="expBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg> <span class="hide">Export</span></button>
       <button class="tbtn" id="guideBtn" data-nav="guide" data-tip="Opens the step-by-step guide on how to use this tracker. There is one for management and one for admins." data-hdr="Guide / SOP"></button>
       <button class="tbtn" id="themeBtn"></button>
+      <form method="post" action="/logout" style="margin:0"><button class="tbtn" type="submit" data-tip="Sign out of the tracker." data-hdr="Sign out"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg></button></form>
     </header>
     <div class="test-mode-banner" role="status" aria-live="polite">
       <span class="test-mode-label"><span aria-hidden="true">!</span> KPI TEST MODE</span>
@@ -1282,7 +1283,7 @@ const NAV=[
 ];
 function renderNav(){
   document.getElementById('navs').innerHTML=NAV.map(g=>
-   `<div class="ngl">${g.g}</div>`+g.items.map(it=>
+   `<div class="ngl">${g.g}</div>`+g.items.filter(it=>it.id!=='admin'||S.admin).map(it=>
      `<button class="ni ${S.view===it.id?'on':''}" data-nav="${it.id}">${ic(it.i,17,1.8)}<span>${it.n}</span>
       ${it.b?`<span class="nb">${it.b()}</span>`:''}${it.bg?`<span class="nb g">${it.bg()}</span>`:''}${it.bm?`<span class="nb m">${it.bm()}</span>`:''}</button>`).join('')).join('');
   document.getElementById('mob').innerHTML=[
@@ -2193,7 +2194,6 @@ function vAdmin(){
     <div style="font-size:14px;color:var(--tx2);margin-top:7px;max-width:430px;line-height:1.6">
       This section controls who can see the tracker, who is on the roster, what each KPI measures, and the targets everyone is held to.
       Only administrators can open it.</div>
-    <button class="btn pri" id="unlock" style="margin-top:20px">${ic('lock',15,2)} Unlock (demo)</button>
   </div></div>`;
 
   /* ---- roster ---- */
@@ -3869,6 +3869,7 @@ function openLivePerson(id){
 const VIEWS={overview:vLiveOverview,attention:vLiveAttention,bonus:vLiveBonus,warnings:vLiveWarnings,guide:vLiveGuide,
   people:vLivePeople,pipeline:vLivePipeline,kpicheck:vLiveKpiCheck,reports:vLiveReports,status:vLiveStatus,admin:vAdmin};
 function render(){
+  if(S.view==='admin'&&!S.admin)S.view='overview';
   document.getElementById('content').innerHTML=(VIEWS[S.view]||vOverview)();
   renderNav();renderTop();
 }
@@ -3905,6 +3906,7 @@ async function syncBitrix(force){
   const query=force?'?refresh=1':'';
   const request=async url=>{
     const response=await fetch(url,{cache:'no-store'});
+    if(response.status===401){location.href='/login';throw new Error('Signed out');}
     const data=await response.json();
     if(!response.ok||data.connected===false)throw new Error(data.error||`Request failed: ${url}`);
     return data;
@@ -4192,7 +4194,6 @@ document.addEventListener('click',e=>{
     if(f>t){const s=f;f=t;t=s;}
     applyRange(f,t);S.boardPreset=fmtRange(f,t);
     hidePop();renderTop();render();toast(`Showing ${fmtRange(f,t)}`,'cal');return;}
-  if(g('#unlock')){S.admin=true;render();toast('Admin unlocked for this demo','lock');return;}
   if(g('#dwx2')){document.getElementById('dw').classList.remove('on');document.getElementById('scrim').classList.remove('on');return;}
 
   const el=g('[data-lbsort],[data-qwin],[data-lbmonth],[data-lbpreset],[data-nav],[data-date],[data-cmp],[data-team],[data-team2],[data-person],[data-person2],[data-month],[data-byear],[data-exp],[data-expperson],[data-demo],[data-jump],[data-clearf],[data-sort],[data-pmode],[data-brole],[data-boardperson],[data-guide],[data-bdate],[data-editkpi],[data-kstat],[data-ksave],[data-kedit],[data-deact],[data-react],[data-rm]');
@@ -4347,15 +4348,27 @@ function timeAgo(d){
 }
 
 /* ===================== BOOT ===================== */
-S.theme=store.g('kt.theme','light');
-document.documentElement.setAttribute('data-theme',S.theme);
-if(innerWidth<680)S.view='overview';
-PEOPLE.splice(0);TEAMS.splice(0);PIPE.splice(0);WARN.splice(0);USERS.splice(0);
-SOURCES.forEach(source=>{source.ok=false;source.last='Not synced';});
-hydrate();
-restoreCache();
-render();
-loadSnapshot();
+function boot(){
+  S.theme=store.g('kt.theme','light');
+  document.documentElement.setAttribute('data-theme',S.theme);
+  if(innerWidth<680)S.view='overview';
+  PEOPLE.splice(0);TEAMS.splice(0);PIPE.splice(0);WARN.splice(0);USERS.splice(0);
+  SOURCES.forEach(source=>{source.ok=false;source.last='Not synced';});
+  hydrate();
+  restoreCache();
+  render();
+  loadSnapshot();
+}
+/* the server only serves this page after login; it tells us which password was used */
+fetch('/api/session',{cache:'no-store'})
+  .then(r=>r.ok?r.json():Promise.reject())
+  .then(s=>{
+    S.admin=s.role==='admin';
+    document.getElementById('roleAv').textContent=S.admin?'AD':'CO';
+    document.getElementById('roleName').textContent=S.admin?'Admin':'Contractor';
+    document.getElementById('roleSub').textContent=S.admin?'Full access':'View only';
+    boot();})
+  .catch(()=>{location.href='/login';});
 
 </script>
 <script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a47d9380bae67e17',t:'MTc5MTU1MDkwOQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>

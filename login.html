@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KPI Tracker · Sign in</title>
+<style>
+  :root{--bg:#f5f6f8;--card:#fff;--tx:#14181f;--tx2:#5b6472;--line:#dde1e8;--acc:#2f5bea;--err:#c62828}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#181c24;--tx:#eef1f6;--tx2:#9aa3b2;--line:#2a303b;--acc:#6c8cff;--err:#ff7a7a}}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+  form{width:100%;max-width:360px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px}
+  h1{font-size:20px;margin:0 0 4px}
+  p{margin:0 0 20px;color:var(--tx2);font-size:14px}
+  label{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
+  input{width:100%;padding:11px 12px;font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:9px}
+  input:focus{outline:2px solid var(--acc);outline-offset:1px}
+  button{width:100%;margin-top:16px;padding:11px;font:inherit;font-weight:600;color:#fff;background:var(--acc);border:0;border-radius:9px;cursor:pointer}
+  .err{margin-top:14px;color:var(--err);font-size:13.5px;min-height:1em}
+</style>
+</head>
+<body>
+<form method="post" action="/login">
+  <h1>KPI Tracker</h1>
+  <p>Enter the password to continue.</p>
+  <label for="pw">Password</label>
+  <input id="pw" name="password" type="password" autocomplete="current-password" autofocus required>
+  <button type="submit">Sign in</button>
+  <div class="err" id="err" role="alert"></div>
+</form>
+<script>
+  const e = new URLSearchParams(location.search).get('error');
+  const msgs = {bad: 'That password is not right.', locked: 'Too many wrong tries. Try again in 15 minutes.', setup: 'Login is not set up yet. Ask the admin.'};
+  if (e) document.getElementById('err').textContent = msgs[e] || '';
+</script>
+</body>
+</html>
