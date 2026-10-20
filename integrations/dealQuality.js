@@ -13,6 +13,8 @@ const ACCEPTED = ['INTRO_CALL', 'SELLER_CALL', 'IOI_STAGE'];
 const LOI = 'NEGOTIATION';
 const AXED = 'LOSE';
 const TEAM_LEADER_FIELD = 'UF_USR_1779466932710';
+/* the deal's "Previous Team Lead" (employee field): when filled, the deal counts for that lead, not the associate's current lead */
+const PREVIOUS_LEAD_FIELD = 'UF_CRM_1791215613';
 /* the "Team Leader Name" text on an associate's profile -> the lead's full name in Bitrix */
 const LEAD_ALIAS = { ea: 'Emmanuel Dominguez Amboya', rox: 'Ma. Roxette Molina Rojas', moeez: 'Moeez Ul Hassan Khan', rana: 'Rana Kamilah Macauba Torres', lemon: 'Lemmuel Rafael De Guzman' };
 const normName = text => String(text).trim().replace(/\s+/g, ' ').toLowerCase();
@@ -32,8 +34,9 @@ async function calculate({ from, to }) {
   const weekIndex = new Map(weeks.map((week, index) => [week.start, index]));
   const months = [...new Set(weeks.flatMap(week => [week.start.slice(0, 7), week.end.slice(0, 7)]))].sort();
 
-  const [users, outcomeEntries, valuationEntries] = await Promise.all([
+  const [users, allUsers, outcomeEntries, valuationEntries] = await Promise.all([
     listPaged('user.get', { FILTER: { ACTIVE: true } }, listItems),
+    listPaged('user.get', { FILTER: {} }, listItems),
     entriesInto([...ACCEPTED, LOI, AXED], addDays(from, -1)),
     entriesInto(VALUATION, addDays(from, -1))
   ]);
@@ -74,22 +77,44 @@ async function calculate({ from, to }) {
     (await listPaged('crm.deal.list', { filter: { ID: ids }, select: ['ID', 'ASSIGNED_BY_ID'] }, listItems))
       .forEach(deal => responsible.set(String(deal.ID), String(deal.ASSIGNED_BY_ID)));
   }
+  const previousLead = new Map();
+  for (const ids of chunk([...transfers.keys()], 50)) {
+    (await listPaged('crm.deal.list', { filter: { ID: ids }, select: ['ID', PREVIOUS_LEAD_FIELD] }, listItems))
+      .forEach(deal => { const value = [].concat(deal[PREVIOUS_LEAD_FIELD] || [])[0]; if (value && String(value) !== '0') previousLead.set(String(deal.ID), String(value)); });
+  }
 
   const leads = users.filter(user => /^deal sourcing (team )?lead$/i.test(user.WORK_POSITION || '')).map(user => ({ bitrixId: String(user.ID), name: fullName(user), associates: new Map() }));
   const leadFor = text => { const full = LEAD_ALIAS[String(text || '').trim().toLowerCase()]; return full ? leads.find(lead => sameName(lead.name, full)) : null; };
-  const associateOwner = new Map();
+  /* everyone with a Team Leader Name on their profile (active, offboarded, or moved to another role) mapped to that lead */
+  const userById = new Map(allUsers.map(user => [String(user.ID), user]));
+  const rowFor = (lead, id) => {
+    let row = lead.associates.get(id);
+    if (!row) {
+      const user = userById.get(id);
+      const name = user ? fullName(user) : `User ${id}`;
+      row = { bitrixId: id, name: user && !user.ACTIVE ? `${name} (no longer active)` : name, weekly: weeks.map(emptySourcing), total: emptySourcing(), daily: {} };
+      lead.associates.set(id, row);
+    }
+    return row;
+  };
+  const currentLead = new Map();
   const unmappedAssociates = [];
-  for (const user of users.filter(u => /^m&a associate$/i.test(u.WORK_POSITION || ''))) {
+  for (const user of allUsers) {
+    const associate = /^m&a associate$/i.test(user.WORK_POSITION || '');
     const lead = leadFor(user[TEAM_LEADER_FIELD]);
-    if (!lead) { unmappedAssociates.push(fullName(user)); continue; }
-    const row = { bitrixId: String(user.ID), name: fullName(user), weekly: weeks.map(emptySourcing), total: emptySourcing(), daily: {} };
-    lead.associates.set(row.bitrixId, row);
-    associateOwner.set(row.bitrixId, row);
+    if (!lead) { if (associate && user.ACTIVE) unmappedAssociates.push(fullName(user)); continue; }
+    currentLead.set(String(user.ID), lead);
+    if (associate && user.ACTIVE) rowFor(lead, String(user.ID));
   }
-  let notUnderALead = 0;
+  /* a deal counts for the lead in its Previous Team Lead field when filled, otherwise for the owner's current lead */
+  let notUnderALead = 0, viaPreviousLead = 0;
   for (const transfer of transfers.values()) {
-    const associate = associateOwner.get(responsible.get(transfer.dealId));
-    if (!associate) { notUnderALead++; continue; }
+    const owner = responsible.get(transfer.dealId);
+    const previous = leads.find(lead => lead.bitrixId === previousLead.get(transfer.dealId));
+    const lead = previous || currentLead.get(owner);
+    if (!lead) { notUnderALead++; continue; }
+    if (previous) viaPreviousLead++;
+    const associate = rowFor(lead, owner);
     for (const bucket of [associate.weekly[transfer.week], associate.total]) {
       bucket.transferred++;
       bucket[transfer.outcome]++;
@@ -123,12 +148,12 @@ async function calculate({ from, to }) {
       axedDeals: axedDeals.slice(0, MAX_LISTED), axedDealsTotal: axedDeals.length,
       assistantDealManagers
     },
-    sourcing: { leads: sourcingLeads, dealsNotUnderALead: notUnderALead, unmappedAssociates },
+    sourcing: { leads: sourcingLeads, dealsNotUnderALead: notUnderALead, dealsCreditedByPreviousLead: viaPreviousLead, unmappedAssociates },
     notes: [
       'Deal Acceptance Rate = deals moved from Video Presentation to Broker Intro Call, Seller Call or IOI Stage, divided by those plus deals Axed from Video Presentation. Deals that went straight to LOI Stage, or to any other stage, are shown separately and are not in the rate. Deals still sitting in Video Presentation are not counted yet.',
       'Bitrix has no link between an Assistant Deal Manager and specific associates, so the acceptance rate is calculated across all associates and shown on each Assistant Deal Manager.',
       'Sourcing Quality = deals moved into Valuation Modeling or Valuation Model For Review that later reached Video Presentation, divided by all deals moved in. Deals still in valuation count as not yet advanced, so recent weeks are not final. Deals are credited to the deal\'s Responsible person.',
-      'An associate belongs to a Deal Sourcing Lead through the "Team Leader Name" text on their Bitrix profile (Rox, Moeez, Lemon, EA, Rana), matched to the lead by full name (EA = Emmanuel Dominguez Amboya, Rox = Ma. Roxette Molina Rojas, Moeez = Moeez Ul Hassan Khan, Rana = Rana Kamilah Macauba Torres, Lemon = Lemmuel Rafael De Guzman).'
+      'A deal counts for the lead named in its Previous Team Lead field when that field is filled (whoever owns the deal, and even if the owner has since left); a deal with no Previous Team Lead counts for the lead on the profile of the deal owner (Team Leader Name), even if the owner has moved to another role or left. An associate belongs to a Deal Sourcing Lead through the "Team Leader Name" text on their Bitrix profile (Rox, Moeez, Lemon, EA, Rana), matched to the lead by full name (EA = Emmanuel Dominguez Amboya, Rox = Ma. Roxette Molina Rojas, Moeez = Moeez Ul Hassan Khan, Rana = Rana Kamilah Macauba Torres, Lemon = Lemmuel Rafael De Guzman).'
     ]
   };
 }

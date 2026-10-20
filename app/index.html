@@ -582,8 +582,8 @@ const KPIS=[
  note:'Cadence conflict in the source document: the target is quarterly but below-target is judged monthly.'},
 {id:'automation_tasks',n:'Automation Tasks On Time',role:'Asst Ops Manager — Automations',team:'Ops',status:'active',
  what:'Automation tasks completed on or before their due date.',
- exp:'100% on time',tgt:100,exc:100,max:100,unit:'%',cadence:'Daily',source:'Bitrix',
- bExc:'100% on time and consistently ahead of deadline',bTgt:'100% completed on or before the due date',bBelow:'Any task late, overdue or left incomplete'},
+ exp:'98–100% on time',tgt:98,exc:100,max:100,unit:'%',cadence:'Monthly',source:'Bitrix',
+ bExc:'100% of automation tasks completed on time, with all tasks finished ahead of their deadlines for over 2 months',bTgt:'98–100% of automation tasks completed on or before the assigned due date',bBelow:'Under 98% completed on time (any task late, overdue or incomplete beyond that)'},
 {id:'deploy_time',n:'Days to Deploy an Automation',role:'Automations Engineer',team:'Ops',status:'active',
  what:'Working days from an approved automation request to it being live.',
  exp:'5–10 working days',tgt:10,exc:5,max:15,unit:' days',cadence:'Weekly',source:'Bitrix',lower:true,
@@ -595,8 +595,8 @@ const KPIS=[
  bExc:'100% completed within the day, ahead of schedule and accurate',bTgt:'100% completed within 2 business days',bBelow:'Anything carried past 2 business days without an approved reason'},
 {id:'audit_tasks',n:'Audit Tasks On Time',role:'Asst Ops Manager — Auditing',team:'Ops',status:'active',
  what:'Auditing tasks completed on or before their due date.',
- exp:'100% on time',tgt:100,exc:100,max:100,unit:'%',cadence:'Daily',source:'Bitrix',
- bExc:'100% on time and consistently ahead of deadline',bTgt:'100% completed on or before the due date',bBelow:'Any task late, overdue or left incomplete'},
+ exp:'98–100% on time',tgt:98,exc:100,max:100,unit:'%',cadence:'Monthly',source:'Bitrix',
+ bExc:'100% of auditing tasks completed on time, with all tasks finished ahead of their deadlines for over 2 months',bTgt:'98–100% of auditing tasks completed on or before the assigned due date',bBelow:'Under 98% completed on time (any task late, overdue or incomplete beyond that)'},
 {id:'audits_completed',n:'Audits Completed',role:'Auditing Specialist',team:'Ops',status:'active',
  what:'Share of requested audits finished inside the audit cycle.',
  exp:'90–99% completed',tgt:90,exc:100,max:100,unit:'%',cadence:'Per audit request',source:'Notion',
@@ -1050,9 +1050,9 @@ const BOARDCFG={
  'Customer Success Manager':{row:'Assigned client',a:'Onboarded on time',b:'Still active',rule:'Onboarding call inside the agreed window'},
  'Automations Engineer'   :{row:'Automation',a:'Deployed on time',b:'Stable after release',rule:'Deployed within 5–10 working days'},
  'Ops Associate — Automations':{row:'Automation',a:'Task on time',b:'Error-free',rule:'100% of automation tasks on time'},
- 'Asst Ops Manager — Automations':{row:'Automation',a:'Task on time',b:'Error-free',rule:'100% of automation tasks on time'},
+ 'Asst Ops Manager — Automations':{row:'Automation',a:'Task on time',b:'Error-free',rule:'98–100% of automation tasks on time in the month'},
  'Auditing Specialist'    :{row:'Audit area',a:'Audit completed',b:'Cleared',rule:'90–99% of audits completed'},
- 'Asst Ops Manager — Auditing':{row:'Audit area',a:'Task on time',b:'Cleared',rule:'100% of audit tasks on time'},
+ 'Asst Ops Manager — Auditing':{row:'Audit area',a:'Task on time',b:'Cleared',rule:'98–100% of audit tasks on time in the month'},
  'Ops Manager'            :{row:'Improvement area',a:'Change shipped',b:'Still in use',rule:'Process improvements delivered'},
  'Talent Admin'           :{row:'Requisition',a:'Task in SLA',b:'Error-free',rule:'HR tasks turned around inside SLA'},
  'Talent Assistant'       :{row:'Requisition',a:'Task in SLA',b:'Error-free',rule:'HR tasks turned around inside SLA'}
@@ -2946,6 +2946,30 @@ function taskKpiCard(person){
   const inProg=new Set(d.weeks.filter(w=>w.inProgress).map(w=>w.start));
   const blocks=mine.map(({k,p})=>{
     const t=p.total;
+    if(k.kind==='onTime'&&(k.id==='automation_tasks'||k.id==='audit_tasks')){
+      /* Asst Operations Manager (Automations / Auditing): judged on a month, updated every day (the month in progress shows its result so far).
+         Target 98-100% on or before the deadline; Below target under 98%;
+         Exceptional only when the month and the 2 months before it were all 100% on time with every task finished before its deadline. */
+      const ms=p.monthly,info=d.months;
+      const perfect=x=>x.due>0&&x.onTime===x.due&&x.ahead===x.due;
+      const zoneAt=i=>{const x=ms[i];if(!x.due)return 'No Data';if(x.onTime/x.due*100<98)return 'Below target';return i>1&&perfect(x)&&perfect(ms[i-1])&&perfect(ms[i-2])?'Exceptional':'Target';};
+      const withTasks=ms.map((x,i)=>i).filter(i=>ms[i].due>0),last=withTasks[withTasks.length-1];
+      const status=last==null?'No Data':`${zoneAt(last)} (${ms[last].month}${info[last].inProgress?' so far':''})`;
+      noteScore(k.name,status);
+      noteSeries(k.name,'month',ms.map((x,i)=>({label:x.month,text:zoneAt(i)})));
+      const pc=x=>x.due?Math.round(x.onTime/x.due*1000)/10+'%':'—';
+      const monthRow=(x,i)=>[liveEscape(x.month)+(info[i].inProgress?' (in progress)':''),x.due,x.onTime,x.ahead,x.late+x.openOverdue,pc(x),zoneAt(i)+(info[i].inProgress&&x.due?' (so far)':'')];
+      const plain=x=>[x.due,x.onTime,x.late+x.openOverdue,x.rate==null?'—':x.rate+'%'];
+      return `<div style="margin-top:14px;font-size:13.5px;font-weight:620">${liveEscape(k.name)}</div>
+        <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Judged on a month, by the month each task was due, and updated every day: the month in progress shows its result so far. Exceptional: 100% of tasks on time and every task finished ahead of its deadline for over 2 months (this month and the 2 months before it) · Target: 98–100% completed on or before the due date · Below target: under 98%. Until there are 2 finished months, the best result is Target.</p>
+        ${sheetTable(['Status','Tasks due (range)','On time','Late','Still open past deadline','On-time %','Avg hours ahead of deadline'],
+          [[liveEscape(status),t.due,t.onTime,t.late,t.openOverdue,t.rate==null?'—':t.rate+'%',t.avgAheadHours==null?'—':t.avgAheadHours]])}
+        ${sheetTable(['Month','Tasks due','On time','Finished before the deadline','Late or overdue','On-time %','Zone'],ms.map(monthRow))}
+        ${sheetTable(['Week of','Tasks due','On time','Late or overdue','On-time %'],p.weekly.map(x=>[wk(x),...plain(x)]))}
+        <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">By day</summary>
+          ${sheetTable(['Due day','Tasks due','On time','Late or overdue','On-time %'],p.days.map(x=>[liveEscape(x.day),...plain(x)]))}</details>
+        ${taskList('Late tasks',p.flagged)}`;
+    }
     if(k.kind==='onTime'){
       const status=t.due?(t.rate===100?'Target (100% on or before the deadline)':'Below target (a task was late or overdue)'):'No Data';
       noteScore(k.name,status);
@@ -2962,12 +2986,15 @@ function taskKpiCard(person){
     }
     if(k.kind==='daily'){
       const unexplained=t.carried-t.carriedWithComments;
-      const status=!t.assigned?'No Data':unexplained>0?'Below target (carried past 2 business days with no comment)':'Target (nothing carried past 2 business days without a comment)';
+      /* Exceptional: every task finished the same day it was created (a task created today and still open does not break it) and nothing carried over.
+         "Accurate" cannot be read from Bitrix and is not checked. */
+      const allSameDay=x=>x.assigned>0&&x.sameDay>0&&x.sameDay+x.openToday===x.assigned&&x.carried===0;
+      const status=!t.assigned?'No Data':unexplained>0?'Below target (carried past 2 business days with no comment)':allSameDay(t)?'Exceptional (every task finished the same day it was created)':'Target (nothing carried past 2 business days without a comment)';
       noteScore(k.name,status);
-      noteSeries(k.name,'week',p.weekly.map(x=>({label:loiShortDay(x.start),iso:x.start,text:inProg.has(x.start)?'In progress':!x.assigned?'No Data':(x.carried-x.carriedWithComments)>0?'Below target':'Target'})));
+      noteSeries(k.name,'week',p.weekly.map(x=>({label:loiShortDay(x.start),iso:x.start,text:inProg.has(x.start)?'In progress':!x.assigned?'No Data':(x.carried-x.carriedWithComments)>0?'Below target':allSameDay(x)?'Exceptional':'Target'})));
       const rowOf=x=>[x.assigned,x.within,x.sameDay,x.carried,x.carriedWithComments,x.rate==null?'—':x.rate+'%'];
       return `<div style="margin-top:14px;font-size:13.5px;font-weight:620">${liveEscape(k.name)}</div>
-        <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Tasks created in the range and finished within 2 business days. Carry-overs with at least one comment are shown as "with comments" for review. Exceptional (done the same day, ahead of schedule and accurate) is not scored automatically.</p>
+        <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Tasks created in the range and finished within 2 business days. A task counts for the responsible person and for every participant on it. Carry-overs with at least one comment are shown as "with comments" for review. Exceptional: every task finished the same day it was created, with nothing carried over (a task created today that is still open does not count against it). Whether the work was accurate is not checked automatically.</p>
         ${sheetTable(['Status','Tasks','Done within 2 business days','Done the same day','Carried over','…of which with comments','Within-window %'],[[liveEscape(status),...rowOf(t).slice(0,1),...rowOf(t).slice(1)]])}
         ${sheetTable(['Week of','Tasks','Within 2 days','Same day','Carried over','With comments','Within-window %'],p.weekly.map(x=>[wk(x),...rowOf(x)]))}
         ${taskList('Carried-over tasks',p.flagged)}`;
@@ -3532,8 +3559,9 @@ function provTasks(person,days){
     const m=dayMap(p.days);
     if(k.kind==='onTime'){
       const cells=days.map(day=>{const e=m.get(day);return !e||!e.due?NA('No tasks due'):{s:e.onTime===e.due?'hit':'miss',tip:`${e.onTime} of ${e.due} tasks done on or before the deadline`};});
+      const monthRule=k.id==='automation_tasks'||k.id==='audit_tasks';
       const due=sumOf(days,x=>(m.get(x)||{}).due||0),on=sumOf(days,x=>(m.get(x)||{}).onTime||0);
-      return {kpi:k.name,rule:'Tasks due that day, done on or before their deadline. Target: 100% on time.',rowHead:'Measure',rows:[{label:'Tasks due',cells,tot:`${on} of ${due}`}],totHead:'On time',sums:[{h:'Tasks due',v:due},{h:'On time',v:on}],hit:on,of:due};
+      return {kpi:k.name,rule:monthRule?'Tasks due that day, done on or before their deadline. A day is met when every task due that day was on time. The status is judged on a whole month: Target 98–100% on time, Below target under 98%.':'Tasks due that day, done on or before their deadline. Target: 100% on time.',rowHead:'Measure',rows:[{label:'Tasks due',cells,tot:`${on} of ${due}`}],totHead:'On time',sums:[{h:'Tasks due',v:due},{h:'On time',v:on}],hit:on,of:due};
     }
     if(k.kind==='daily'){
       const cells=days.map(day=>{const e=m.get(day);return !e||!e.assigned?NA('No tasks created'):{s:(e.carried-e.carriedWithComments)>0?'miss':'hit',tip:`${e.within} of ${e.assigned} tasks finished within 2 business days${e.carried?` · ${e.carried} carried over (${e.carriedWithComments} with comments)`:''}`};});
