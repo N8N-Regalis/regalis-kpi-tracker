@@ -3723,6 +3723,26 @@ function lbDatePop(){
 }
 
 /* people table + day-by-day grid; roles with no daily data fall back to the weekly/monthly squares */
+/* Board status for the picked dates: per KPI, the latest finished week or month that falls in the dates; the worst of those KPIs.
+   Without any weekly or monthly results (daily-only job titles) it stays the overall score. */
+function boardStatusKey(p,days){
+  const series=p.series||[];
+  if(!series.length||!days.length)return p.s||'nodata';
+  const from=days[0],to=days[days.length-1],keys=[];
+  series.forEach(x=>{
+    let best=null;
+    x.cols.forEach(c=>{
+      let a=null,b=null;
+      if(x.grain==='week'){if(c.iso){a=isoMonday(c.iso);b=addIsoDays(a,6);}}
+      else if(/^\d{4}-\d{2}$/.test(c.label)){a=c.label+'-01';b=c.label+'-31';}
+      else if(/^\d{4}-\d{2}-\d{2}$/.test(c.label)){a=b=c.label;}
+      if(!a||b<from||a>to||c.inProgress)return;
+      if(!best||a>best.a)best={a,key:c.key};
+    });
+    if(best&&best.key!=='nodata')keys.push(best.key);
+  });
+  return keys.length?keys.sort((a,b)=>SRANK[a]-SRANK[b])[0]:'nodata';
+}
 function liveBoard(){
   const {inRole}=boardRows();
   const rg=boardRange();
@@ -3750,14 +3770,14 @@ function liveBoard(){
   const heads=first.sums.map(s=>s.h);
   const rangeLbl=`${shortIso(rg.days[0])} – ${shortIso(rg.days[rg.days.length-1])}`;
   const table=`<div class="sec"><div class="sh"><span class="st">Everyone who is a ${liveEscape(S.boardRole)}</span>
-      <span class="sn">${rangeLbl} · ${rg.days.length} working day${rg.days.length===1?'':'s'} · click a row to open their day by day · Status is the latest full period; the columns and hit rate cover these dates</span></div>
+      <span class="sn">${rangeLbl} · ${rg.days.length} working day${rg.days.length===1?'':'s'} · click a row to open their day by day · Status is the result for these dates (the latest finished week or month in them); the columns and hit rate cover the same dates</span></div>
     <div class="bwrap"><table class="bgrid"><thead><tr>
       <th class="cl">Person</th><th style="text-align:left">Status</th>${heads.map(h=>`<th>${liveEscape(h)}</th>`).join('')}<th style="width:150px">Hit rate</th></tr></thead>
       <tbody>${inRole.map(p=>{const m=models.get(p.id);const pc=m&&m.of?pct(m.hit,m.of):null;
         return `<tr class="rolerow ${sel&&p.id===sel.id?'on':''}" data-boardperson="${p.id}">
           <td class="cl"><div class="pnamecell"><div class="pav" style="width:30px;height:30px;font-size:10.5px">${liveEscape(p.i)}</div>
             <div><div style="font-weight:620">${liveEscape(p.n)}</div><div style="font-size:11.5px;color:var(--tx3)">${liveEscape(p.team)}</div></div></div></td>
-          <td style="text-align:left">${bdg(p.s||'nodata')}</td>
+          <td style="text-align:left">${bdg(boardStatusKey(p,rg.days))}</td>
           ${heads.map((h,i)=>`<td class="bsum">${m?liveEscape(String(m.sums[i]?m.sums[i].v:'—')):'—'}</td>`).join('')}
           <td>${pc==null?'<span style="color:var(--tx3)">—</span>':`<div style="display:flex;align-items:center;gap:8px"><div class="track" style="flex:1"><i class="${pc>=80?'':pc>=55?'w':'b'}" style="width:${pc}%"></i></div><b style="font-size:12px;width:34px">${pc}%</b></div>`}</td></tr>`;}).join('')}</tbody></table></div></div>`;
   if(!sel)return bar(first.kpi)+table;
