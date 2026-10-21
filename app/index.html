@@ -1238,8 +1238,9 @@ function csv(rows,name){
   }catch(e){toast('Download blocked in preview — works in a normal browser tab','info')}
 }
 /* live exports: real scores, not the mock-up columns */
-function liveScoreCsv(list){
-  const rows=[['Contractor','Role','Team','Overall score','KPI','KPI result','Basis']];
+function liveScoreCsv(list,rg){
+  const rows=rg?[['Results for '+rg.from+' to '+rg.to+' (the latest finished week or month inside those dates)'],[]]:[];
+  rows.push(['Contractor','Role','Team','Overall score','KPI','KPI result','Basis']);
   list.forEach(p=>{
     const s=p.scores||[];
     if(!s.length)rows.push([p.n,p.role,p.team,ST[p.s||'nodata'].l,'','No Data','']);
@@ -1250,7 +1251,8 @@ function liveScoreCsv(list){
 function exportCurrent(kind){
   if(DATA.mode==='live'&&kind!=='pdf'){
     const board=S.view==='people'&&S.peopleMode==='board';
-    csv(board?liveBoardCsv():liveScoreCsv(scoped()),`kpi-${board?'board':S.view}-${new Date().toISOString().slice(0,10)}.csv`);
+    const lp=S.view==='people'&&!board?livePeopleList():null;
+    csv(board?liveBoardCsv():lp?liveScoreCsv(lp.people,lp.rg):liveScoreCsv(scoped()),`kpi-${board?'board':S.view}-${new Date().toISOString().slice(0,10)}.csv`);
     return;
   }
   const rows=[['Name','Role','Team','KPI','Expected','Actual','Status','How long','Consistency %']];
@@ -2613,19 +2615,22 @@ function vLiveWarnings(){
       <p style="font-size:12.5px;color:var(--tx3);margin:10px 0 0">Stuck below target: Needs Attention or Problem for 2 or more completed periods in a row (High at 4 weeks or 3 months). Just slipped: On Target or better in the period before, then below target in the latest one. Squares are the last six completed periods. Periods still in progress and No Data periods are skipped. Warnings only use history since counting started, so a short history means few warnings.</p></div></div>`;
 }
 function vLivePeople(){
-  const search=(S.search||'').toLowerCase();
-  const people=sortPeople(scoped().filter(person=>!search||person.n.toLowerCase().includes(search)||person.role.toLowerCase().includes(search)));
-  const rows=people.map(liveScoreRow).join('');
+  const {people,rg}=livePeopleList();
+  const rows=people.map(person=>liveScoreRow(person,{dated:Boolean(rg)})).join('');
   const cnt=scoreCounts(people);
   return `<div class="page"><div class="ph"><h1 class="pt">Teams & People ${scopeLine()}</h1>
-    <div class="ps">Active contractors from Bitrix with their latest KPI score.${slowStillLoading()?' Some KPIs are still loading, so scores may change.':''}</div></div>
+    <div class="ps">Active contractors from Bitrix with their ${S.peopleMode==='list'&&lpRange()?'KPI result for the picked dates':'latest KPI score'}.${slowStillLoading()?' Some KPIs are still loading, so scores may change.':''}</div></div>
     <div class="sec" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <div class="seg2"><button class="${S.peopleMode==='list'?'on':''}" data-pmode="list">${ic('list',14,2)} List</button>
         <button class="${S.peopleMode==='board'?'on':''}" data-pmode="board">${ic('grid',14,2)} Board</button></div>
       ${S.peopleMode==='list'?`<div style="position:relative;flex:1;min-width:200px;max-width:300px"><span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--tx3)">${ic('search',15,2)}</span>
         <input class="searchin" id="pSearch" placeholder="Search a person or job title…" value="${liveEscape(S.search||'')}" style="padding-left:34px;margin:0"></div>`:''}
+      ${S.peopleMode==='list'?`<span class="fl">${ic('cal',13,2)} Dates</span>
+        <button class="ctl" id="lpDateBtn" data-tip="Show each person's result for these dates: the latest finished week or month inside them. The default is each person's latest finished period." data-hdr="Dates">${ic('cal',14,2)} <b>${liveEscape(lpRange()?lpRange().label+(S.lpPreset==='Custom'?' ('+lpRange().from+' to '+lpRange().to+')':''):LP_LATEST)}</b> ${ic('chev',13,2.2)}</button>
+        `:''}
       <button class="ctl" id="teamBtn2"><b>${liveEscape(effTeam())}</b> ${ic('chev',13,2.2)}</button>
-      ${S.peopleMode==='list'?`<button class="ctl" id="personBtn2"><b>${liveEscape(effPerson())}</b> ${ic('chev',13,2.2)}</button>
+      ${S.peopleMode==='list'?`<button class="ctl" id="lpRoleBtn" data-tip="Show only people with this job title." data-hdr="Job title">${ic('grid',14,2)} <b>${liveEscape(S.lpRole||LP_ALL)}</b> ${ic('chev',13,2.2)}</button>
+        <button class="ctl" id="personBtn2"><b>${liveEscape(effPerson())}</b> ${ic('chev',13,2.2)}</button>
         <button class="ctl" id="sortBtn"><b>${SORTS[S.sort]}</b> ${ic('chev',13,2.2)}</button>`:''}
       <div style="flex:1"></div>${S.peopleMode==='list'?`<button class="btn sm" data-exp="xls">${ic('xls',14,1.9)} Export list</button>`:''}
     </div>
@@ -3530,12 +3535,13 @@ function boardToday(){const t=iso(TODAY);return COUNT_TO&&COUNT_TO<t?COUNT_TO:t;
 function addIsoDays(day,n){const d=parseISO(day);d.setDate(d.getDate()+n);return iso(d);}
 function isoMonday(day){const d=parseISO(day);d.setDate(d.getDate()-((d.getDay()+6)%7));return iso(d);}
 function workdayList(from,to){const out=[];for(let d=from;d<=to;d=addIsoDays(d,1)){const w=parseISO(d).getDay();if(w!==0&&w!==6&&!HOLIDAYS.has(d))out.push(d);}return out;}
-function boardRange(){
+function boardRange(prX,fromX,toX){
   const max=boardToday(),min=COUNT_FROM>max?max:COUNT_FROM;
-  const pr=S.bPreset||'Last 15 working days';
+  const pr=prX||S.bPreset||'Last 15 working days';
+  const cFrom=prX?fromX:S.bFrom,cTo=prX?toX:S.bTo;
   const lastN=n=>{const all=workdayList(min,max);return [all[Math.max(0,all.length-n)]||min,max];};
   let r;
-  if(pr==='Custom'&&S.bFrom&&S.bTo)r=[S.bFrom,S.bTo];
+  if(pr==='Custom'&&cFrom&&cTo)r=[cFrom,cTo];
   else if(/^Last \d+ working days$/.test(pr))r=lastN(Number(pr.match(/\d+/)[0]));
   else if(pr==='This week')r=[isoMonday(max),max];
   else if(pr==='Last week'){const m=addIsoDays(isoMonday(max),-7);r=[m,addIsoDays(m,4)];}
@@ -3771,6 +3777,57 @@ function boardStatusKey(p,days){
   });
   return keys.length?keys.sort((a,b)=>SRANK[a]-SRANK[b])[0]:'nodata';
 }
+/* ---- Teams & People list: job title and dates ---- */
+const LP_LATEST='Latest finished period';
+const LP_ALL='All job titles';
+function lpRange(){return (S.lpPreset||LP_LATEST)===LP_LATEST?null:boardRange(S.lpPreset,S.lpFrom,S.lpTo);}
+/* each KPI's result for the picked dates: the latest finished week or month inside them (KPIs without weekly or monthly results keep their latest result) */
+function periodResults(p,days){
+  const from=days[0],to=days[days.length-1],out=[],seen=new Set();
+  (p.series||[]).forEach(x=>{
+    seen.add(x.kpi);
+    let best=null;
+    x.cols.forEach(c=>{
+      let a=null,b=null;
+      if(x.grain==='week'){if(c.iso){a=isoMonday(c.iso);b=addIsoDays(a,6);}}
+      else if(/^\d{4}-\d{2}$/.test(c.label)){a=c.label+'-01';b=c.label+'-31';}
+      else if(/^\d{4}-\d{2}-\d{2}$/.test(c.label)){a=b=c.label;}
+      if(!a||b<from||a>to||c.inProgress)return;
+      if(!best||a>best.a)best={a,key:c.key,text:c.text};
+    });
+    if(best&&best.key!=='nodata')out.push({kpi:x.kpi,key:best.key,text:best.text});
+  });
+  (p.scores||[]).forEach(x=>{if(!seen.has(x.kpi)&&x.key!=='nodata')out.push(x);});
+  return out;
+}
+function livePeopleList(){
+  const search=(S.search||'').toLowerCase();
+  const role=S.lpRole||LP_ALL;
+  const rg=lpRange();
+  let list=scoped().filter(person=>(role===LP_ALL||person.role===role)&&(!search||person.n.toLowerCase().includes(search)||person.role.toLowerCase().includes(search)));
+  if(rg)list=list.map(person=>{const scores=periodResults(person,rg.days);return {...person,scores,s:headlineKey(scores)};});
+  return {people:sortPeople(list),rg};
+}
+function lpRolePop(){
+  const pool=scoped();
+  const roles=[...new Set(pool.map(p=>p.role))].sort();
+  const cur=S.lpRole||LP_ALL;
+  return `<div class="pophd">Job title${effTeam()==='All teams'?'':' in '+liveEscape(effTeam())}</div>
+    <button class="popi ${cur===LP_ALL?'on':''}" data-lprole="${LP_ALL}">${LP_ALL} <span class="mt">${pool.length}</span></button>
+    ${roles.map(r=>`<button class="popi ${cur===r?'on':''}" data-lprole="${liveEscape(r)}">${liveEscape(r)} <span class="mt">${pool.filter(p=>p.role===r).length}</span></button>`).join('')}`;
+}
+function lpDatePop(){
+  const r=boardRange(S.lpPreset&&S.lpPreset!==LP_LATEST?S.lpPreset:'Last 15 working days',S.lpFrom,S.lpTo);
+  const cur=S.lpPreset||LP_LATEST;
+  return `<div class="pophd">Show each person's result for</div>
+    ${[LP_LATEST,...LB_PRESETS].map(k=>`<button class="popi ${cur===k?'on':''}" data-lppreset="${k}">${k}</button>`).join('')}
+    <div class="popdiv"></div><div class="pophd">Pick exact dates</div>
+    <div class="rangebox">
+      <input type="date" id="lp1" value="${r.from}" min="${COUNT_FROM}" max="${boardToday()}">
+      <input type="date" id="lp2" value="${r.to}" min="${COUNT_FROM}" max="${boardToday()}">
+      <button class="btn pri" id="lpApply" style="justify-content:center">Apply range</button>
+    </div>`;
+}
 function liveBoard(){
   const {inRole}=boardRows();
   const rg=boardRange();
@@ -3887,7 +3944,7 @@ function liveScoreRow(person,opts={}){
     <div class="pav">${liveEscape(person.i)}</div><div class="pmain">
       <div class="pnm">${liveEscape(person.n)} ${bdg(key)}</div><div class="prole">${liveEscape(person.role)} · ${liveEscape(person.team)}</div>
       <div class="pkpi">${opts.detail?detailText(person):kpiText}</div></div>
-    <div class="pnum"><span class="v">${liveEscape(ST[key].l)}</span><span class="t">${real.length?'latest full period':'not scored'}</span></div></div>`;
+    <div class="pnum"><span class="v">${liveEscape(ST[key].l)}</span><span class="t">${real.length?(opts.dated?'for the picked dates':'latest full period'):'not scored'}</span></div></div>`;
 }
 function openLivePerson(id){
   const person=PEOPLE.find(entry=>entry.id===id);if(!person)return;
@@ -3952,12 +4009,21 @@ async function syncBitrix(force){
   S.refreshing=true;renderTop();
   const syncSeq=WIN_SEQ; /* if a window is picked while this load is running, its answers are for the old window and must not be used */
   const query=force?'?refresh=1':'';
+  /* a slow first load can make the host cut the request off (empty answer); wait and ask again a few times before giving up */
   const request=async url=>{
-    const response=await fetch(url,{cache:'no-store'});
-    if(response.status===401){location.href='/login';throw new Error('Signed out');}
-    const data=await response.json();
-    if(!response.ok||data.connected===false)throw new Error(data.error||`Request failed: ${url}`);
-    return data;
+    for(let attempt=0;;attempt++){
+      try{
+        const response=await fetch(url,{cache:'no-store'});
+        if(response.status===401){location.href='/login';throw Object.assign(new Error('Signed out'),{final:true});}
+        let data;
+        try{data=await response.json();}catch(e){throw new Error('The server did not answer in time');}
+        if(!response.ok||data.connected===false){const err=new Error(data.error||`Request failed: ${url}`);err.final=response.status>0&&response.status<500;throw err;}
+        return data;
+      }catch(e){
+        if(e.final||attempt>=3)throw e;
+        await new Promise(resolve=>setTimeout(resolve,5000*(attempt+1)));
+      }
+    }
   };
   try{
     const results=await Promise.allSettled([
@@ -4217,6 +4283,13 @@ document.addEventListener('click',e=>{
   if(g('#monthBtn')){showPop(g('#monthBtn'),monthPop());return;}
   if(g('#sortBtn')){showPop(g('#sortBtn'),sortPop());return;}
   if(g('#roleBtn')){showPop(g('#roleBtn'),rolePop());return;}
+  if(g('#lpRoleBtn')){showPop(g('#lpRoleBtn'),lpRolePop());return;}
+  if(g('#lpDateBtn')){showPop(g('#lpDateBtn'),lpDatePop());return;}
+  if(g('#lpApply')){
+    let a=document.getElementById('lp1').value,b=document.getElementById('lp2').value;
+    if(!a||!b){toast('Pick both a start and an end date','info');return;}
+    if(a>b){const t=a;a=b;b=t;}
+    S.lpFrom=a;S.lpTo=b;S.lpPreset='Custom';hidePop();render();toast(`Showing results for ${a} to ${b}`,'cal');return;}
   if(g('#lbDateBtn')){showPop(g('#lbDateBtn'),lbDatePop());return;}
   if(g('#lbSortBtn')){showPop(g('#lbSortBtn'),lbSortPop());return;}
   if(g('#kpiRetry')){retryKpis();toast('Reading the missing KPIs again','refresh');return;}
@@ -4244,7 +4317,7 @@ document.addEventListener('click',e=>{
     hidePop();renderTop();render();toast(`Showing ${fmtRange(f,t)}`,'cal');return;}
   if(g('#dwx2')){document.getElementById('dw').classList.remove('on');document.getElementById('scrim').classList.remove('on');return;}
 
-  const el=g('[data-lbsort],[data-qwin],[data-lbmonth],[data-lbpreset],[data-nav],[data-date],[data-cmp],[data-team],[data-team2],[data-person],[data-person2],[data-month],[data-byear],[data-exp],[data-expperson],[data-demo],[data-jump],[data-clearf],[data-sort],[data-pmode],[data-brole],[data-boardperson],[data-guide],[data-bdate],[data-editkpi],[data-kstat],[data-ksave],[data-kedit],[data-deact],[data-react],[data-rm]');
+  const el=g('[data-lbsort],[data-qwin],[data-lbmonth],[data-lbpreset],[data-lprole],[data-lppreset],[data-nav],[data-date],[data-cmp],[data-team],[data-team2],[data-person],[data-person2],[data-month],[data-byear],[data-exp],[data-expperson],[data-demo],[data-jump],[data-clearf],[data-sort],[data-pmode],[data-brole],[data-boardperson],[data-guide],[data-bdate],[data-editkpi],[data-kstat],[data-ksave],[data-kedit],[data-deact],[data-react],[data-rm]');
   if(!el){if(!g('#pop'))hidePop();return;}
   const d=el.dataset;
 
@@ -4298,6 +4371,8 @@ document.addEventListener('click',e=>{
     }
     render();return;}
   if(d.brole){S.boardRole=d.brole;S.boardPerson=null;hidePop();render();return;}
+  if(d.lprole){S.lpRole=d.lprole;hidePop();render();return;}
+  if(d.lppreset){S.lpPreset=d.lppreset;S.lpFrom=null;S.lpTo=null;hidePop();render();toast(d.lppreset===LP_LATEST?"Showing each person's latest finished period":`Showing results for ${d.lppreset.toLowerCase()}`,'cal');return;}
   if(d.guide){S.guideTab=d.guide;render();return;}
   if(d.expperson){exportPerson(d.expperson);hidePop();return;}
   if(d.exp){exportCurrent(d.exp);hidePop();return;}

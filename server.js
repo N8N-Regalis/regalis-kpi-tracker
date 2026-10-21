@@ -405,6 +405,16 @@ app.get('/api/kpi-test/mna-associate', async (req, res) => {
 /* the dashboard page lives in app/ and is only sent after login; nothing else in the folder is served */
 app.get(['/', '/index.html'], (req, res) => res.sendFile(path.join(APP_DIR, 'index.html')));
 
+/* keep the shared Bitrix lists loaded so the first visit after a restart does not have to wait for them */
+const warmBitrix = () => Promise.allSettled([
+  bitrix.loadCached('deals', bitrix.getDeals),
+  bitrix.loadCached('stages', bitrix.getStages),
+  bitrix.loadCached('users', bitrix.getUsers),
+  bitrix.loadCached('departments', bitrix.getDepartments)
+]);
+
 app.listen(PORT, HOST, () => {
   console.log(`KPI Dashboard: http://localhost:${PORT}`);
+  warmBitrix();
+  setInterval(warmBitrix, 2 * 60_000);
 });

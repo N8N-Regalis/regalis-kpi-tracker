@@ -184,30 +184,44 @@ async function getStages() {
   return stages.flat();
 }
 
+/* Reading every deal takes 40+ seconds, longer than a hosted proxy waits for an answer, so the deals list is kept
+   fresh for 5 minutes and an older copy (up to 30 minutes) is sent straight away while a new one loads in the background. */
 async function loadCached(rawKey, loader, force = false) {
   const key = rawKey.startsWith('kpi:') ? `${rawKey}|${config.windowKey()}` : rawKey;
   const current = cache.get(key);
-  if (!force && current && Date.now() - current.time < CACHE_TTL_MS) {
+  const slow = rawKey === 'deals';
+  const freshMs = slow ? 5 * 60_000 : CACHE_TTL_MS;
+  const keepMs = slow ? 30 * 60_000 : STALE_TTL_MS;
+  const age = current ? Date.now() - current.time : Infinity;
+  if (!force && current && age < freshMs) {
     return { data: current.data, cached: true, stale: false };
   }
-  if (pending.has(key)) return pending.get(key);
 
-  const request = (async () => {
-    try {
-      const data = await loader();
-      cache.set(key, { data, time: Date.now() });
-      return { data, cached: false, stale: false };
-    } catch (error) {
-      if (current && Date.now() - current.time < STALE_TTL_MS) {
-        return { data: current.data, cached: true, stale: true, error: error.message };
+  const refresh = () => {
+    if (pending.has(key)) return pending.get(key);
+    const request = (async () => {
+      try {
+        const data = await loader();
+        cache.set(key, { data, time: Date.now() });
+        return { data, cached: false, stale: false };
+      } catch (error) {
+        if (current && Date.now() - current.time < keepMs) {
+          return { data: current.data, cached: true, stale: true, error: error.message };
+        }
+        throw error;
+      } finally {
+        pending.delete(key);
       }
-      throw error;
-    } finally {
-      pending.delete(key);
-    }
-  })();
-  pending.set(key, request);
-  return request;
+    })();
+    pending.set(key, request);
+    return request;
+  };
+
+  if (!force && current && age < keepMs) {
+    refresh().catch(() => {});
+    return { data: current.data, cached: true, stale: false, refreshing: true };
+  }
+  return refresh();
 }
 
 async function connectionTest() {
