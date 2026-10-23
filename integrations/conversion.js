@@ -10,6 +10,9 @@ const { etDay, fromUtc, addDays, chunk, entriesInto, listPaged, listItems } = re
 const LOI_STAGE = 'NEGOTIATION';
 const CLOSING_STAGE = 'LAST_PHASE';
 const SIGNED_DATE = 'UF_CRM_1758748037506';
+/* the deal's "Reason for Axed" list field; option 993 is "Other - Internal" */
+const AXED_REASON_FIELD = 'UF_CRM_1755636401';
+const OTHER_INTERNAL = '993';
 const HISTORY_SINCE = '2024-01-01';
 const LOI_MONTHS = 3;
 const CLOSING_MONTHS = 6;
@@ -29,7 +32,7 @@ async function firstEntries(stage) {
 async function dealsById(ids) {
   const out = new Map();
   for (const part of chunk(ids, 40)) {
-    (await listPaged('crm.deal.list', { filter: { ID: part }, select: ['ID', 'STAGE_ID', SIGNED_DATE] }, listItems)).forEach(deal => out.set(String(deal.ID), deal));
+    (await listPaged('crm.deal.list', { filter: { ID: part }, select: ['ID', 'STAGE_ID', SIGNED_DATE, AXED_REASON_FIELD] }, listItems)).forEach(deal => out.set(String(deal.ID), deal));
   }
   return out;
 }
@@ -52,6 +55,11 @@ async function calculate() {
   const loiIds = [...loiFirst].filter(([, day]) => day >= loiFrom).map(([id]) => id);
   const closingIds = [...closingFirst].filter(([, day]) => day >= closingFrom).map(([id]) => id);
   const [loiDeals, closingDeals] = await Promise.all([dealsById(loiIds), dealsById(closingIds)]);
+  /* deals Axed with the reason "Other - Internal" are not counted in Closing Conversion */
+  let excludedInternal = 0;
+  for (const [id, deal] of closingDeals) {
+    if (deal.STAGE_ID === 'LOSE' && String(deal[AXED_REASON_FIELD]) === OTHER_INTERNAL) { closingDeals.delete(id); excludedInternal++; }
+  }
   const link = id => `${portal}/crm/deal/details/${id}/`;
 
   const loi = loiWin.map(({ start, end }) => {
@@ -75,10 +83,10 @@ async function calculate() {
       .map(id => ({ id, url: link(id), day: closingFirst.get(id), stage: closingDeals.get(id).STAGE_ID }))
   };
   return {
-    today, loiMonths: LOI_MONTHS, closingMonths: CLOSING_MONTHS, loi, closing, deals, provisional: true,
+    today, loiMonths: LOI_MONTHS, closingMonths: CLOSING_MONTHS, loi, closing, deals, excludedInternal, provisional: true,
     notes: [
       'LOI Conversion: deals that first moved into LOI Stage in the 3-month window, and the share that have a LOI Signed Date. Exceptional 18% or more · Target 13% · Below target under 13%.',
-      'Closing Conversion: deals that first moved into Closing in the 6-month window, and the share now in Deal Closed. The rate is Deal Closed out of Deal Closed plus Axed, because deals still in Closing or On Hold have not had an outcome yet; the share of all entered deals is shown too. Exceptional 80% or more · Target 70% · Below target under 70%.',
+      'Closing Conversion: deals that first moved into Closing in the 6-month window, and the share now in Deal Closed. The rate is Deal Closed out of Deal Closed plus Axed, because deals still in Closing or On Hold have not had an outcome yet. Deals Axed with the reason "Other - Internal" are not counted at all. The share of all entered deals is shown too. Exceptional 80% or more · Target 70% · Below target under 70%.',
       'The Bitrix End date field is filled on every deal (it is the expected close date), so it is not used to decide whether a deal closed.',
       'Outcomes are each deal\'s state today, so recent windows are not final. A deal that leaves and re-enters a stage counts once, in the first window.',
       'Counting starts on 1 October 2026: a window never reaches back before that day, so the rolling windows are shorter than 3 and 6 months until they fill up.',

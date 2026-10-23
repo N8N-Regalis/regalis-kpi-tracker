@@ -77,9 +77,6 @@ svg{display:block;flex:none}
 
 /* ============ TOP BAR ============ */
 .top{display:flex;align-items:center;gap:8px;padding:0 20px;height:58px;flex:none;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:nowrap}
-.test-mode-banner{display:flex;align-items:center;gap:10px;padding:9px 20px;background:var(--warn-bg);border-bottom:1px solid var(--warn-ln);color:var(--tx);font-size:12.5px;line-height:1.4;flex:none}
-.test-mode-label{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:5px;background:var(--warn);color:#fff;font-size:10px;font-weight:800;letter-spacing:.06em;white-space:nowrap}
-.test-mode-banner .tm-copy{color:var(--tx2)}
 .ctl{display:flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-size:13px;color:var(--tx);transition:border-color .12s,background .12s;white-space:nowrap}
 .ctl:hover{border-color:var(--line2);background:var(--hover)}
 .ctl.on{border-color:var(--acc);background:var(--acc-bg);color:var(--acc)}
@@ -314,7 +311,6 @@ table.tbl tbody tr:hover{background:var(--panel2)}
   .top{padding:0 11px;gap:6px;height:54px;overflow-x:auto;scrollbar-width:none;
        -webkit-overflow-scrolling:touch;
        mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent)}
-  .test-mode-banner{align-items:flex-start;padding:8px 12px;gap:8px}
   .top::-webkit-scrollbar{display:none}
   .statrow{grid-template-columns:1fr 1fr}
   .page{padding:16px 13px 92px}
@@ -465,10 +461,6 @@ table.tbl td .tag{vertical-align:middle}
       <button class="tbtn" id="themeBtn"></button>
       <form method="post" action="/logout" style="margin:0"><button class="tbtn" type="submit" data-tip="Sign out of the tracker." data-hdr="Sign out"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg></button></form>
     </header>
-    <div class="test-mode-banner" role="status" aria-live="polite">
-      <span class="test-mode-label"><span aria-hidden="true">!</span> KPI TEST MODE</span>
-      <span class="tm-copy">Official KPI scores are live on the Overview, Needs Attention, Early Warnings, KPI Bonus, Teams & People (list and board), Company Report and each contractor's page.</span>
-    </div>
     <div class="content" id="content"></div>
   </div>
 </div>
@@ -3232,7 +3224,7 @@ function dealQualityCards(person){
     noteSeries('Deal Acceptance Rate','week',weeks.map((w,i)=>({label:loiShortDay(w.start),iso:w.start,text:w.inProgress?'In progress':acceptZone(a.weekly[i].rate)})));
     const row=(label,x,inProg)=>[label,x.accepted,x.axed,x.toLoi+x.other,pct(x.rate),inProg?'In progress':acceptZone(x.rate)];
     return wrap('Bitrix deals · Deal Acceptance Rate · Assistant Deal Manager',
-      `<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Of the deals that left Video Presentation: accepted = moved to Broker Intro Call, Seller Call or IOI Stage; the rest were Axed. Exceptional: above 80% · Target: 65% or more · Below target: under 65%. Moving straight to LOI Stage or to any other stage is shown separately and is not in the rate. Bitrix does not link an Assistant Deal Manager to specific associates, so this is the rate across all associates.</p>
+      `<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Of the deals that left Video Presentation: accepted = moved to Broker Intro Call, Seller Call or IOI Stage; the rest were Axed (deals Axed with the reason "Other - Internal" are not counted). Exceptional: above 80% · Target: 65% or more · Below target: under 65%. Moving straight to LOI Stage or to any other stage is shown separately and is not in the rate. Bitrix does not link an Assistant Deal Manager to specific associates, so this is the rate across all associates.</p>
       ${sheetTable(['Status (last full month)','Accepted','Axed','Rate','All weeks in range'],[[liveEscape(status),a.monthly[lastMonth]?a.monthly[lastMonth].accepted:'—',a.monthly[lastMonth]?a.monthly[lastMonth].axed:'—',a.monthly[lastMonth]?pct(a.monthly[lastMonth].rate):'—',pct(a.total.rate)]])}
       ${sheetTable(['Month','Accepted','Axed','Straight to LOI or other','Acceptance rate','Zone'],months.map(m=>row(m+(m===monthNow?' (in progress)':''),a.monthly[m],m===monthNow)))}
       ${sheetTable(['Week of','Accepted','Axed','Straight to LOI or other','Acceptance rate','Zone'],weeks.map((w,i)=>row(wk(w),a.weekly[i],w.inProgress)))}
@@ -3362,7 +3354,7 @@ function conversionCard(person){
     <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Signed LOIs in the current window (${cur.signed})</summary>
       ${cur.signed?sheetTable(['Deal (opens in Bitrix)','Entered LOI Stage (ET)','Now'],d.deals.loi.filter(x=>x.outcome==='Signed LOI').map(x=>[link(x.url,'Deal #'+liveEscape(x.id)),liveEscape(x.day),stageName(x.stage)])):'<p style="font-size:13px;color:var(--tx2)">None.</p>'}</details>
     <div style="margin-top:16px;font-size:13.5px;font-weight:620">Closing Conversion Rate · rolling ${d.closingMonths} months</div>
-    <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Deals that first moved into Closing in the window. Rate = Deal Closed out of Deal Closed plus Axed, because deals still in Closing or On Hold have no outcome yet. Exceptional: 80% or more · Target: 70% or more · Below target: under 70%. The Bitrix End date field is filled on every deal (it is the expected close date), so Deal Closed is what decides success.</p>
+    <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Deals that first moved into Closing in the window. Rate = Deal Closed out of Deal Closed plus Axed, because deals still in Closing or On Hold have no outcome yet. Deals Axed with the reason "Other - Internal" are not counted. Exceptional: 80% or more · Target: 70% or more · Below target: under 70%. The Bitrix End date field is filled on every deal (it is the expected close date), so Deal Closed is what decides success.</p>
     ${sheetTable(['Current window','Entered Closing','Deal Closed','Axed','Still open','Rate','Share of all entered','Zone'],[[win(cc),cc.entered,cc.closed,cc.axed,cc.open,pct(cc.rate),pct(cc.rateOfEntered),clZone(cc.rate)]])}
     ${sheetTable(['Window','Entered Closing','Deal Closed','Axed','Still open','Rate','Share of all entered','Zone'],d.closing.map(w=>[win(w),w.entered,w.closed,w.axed,w.open,pct(w.rate),pct(w.rateOfEntered),clZone(w.rate)]))}
     <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Deals that entered Closing in the current window (${d.deals.closing.length})</summary>

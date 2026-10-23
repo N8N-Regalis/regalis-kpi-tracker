@@ -12,6 +12,9 @@ const PRESENTATION = 'DEAL_PRESENTATION';
 const ACCEPTED = ['INTRO_CALL', 'SELLER_CALL', 'IOI_STAGE'];
 const LOI = 'NEGOTIATION';
 const AXED = 'LOSE';
+/* the deal's "Reason for Axed" list field; option 993 is "Other - Internal" */
+const AXED_REASON_FIELD = 'UF_CRM_1755636401';
+const OTHER_INTERNAL = '993';
 const TEAM_LEADER_FIELD = 'UF_USR_1779466932710';
 /* the deal's "Previous Team Lead" (employee field): when filled, the deal counts for that lead, not the associate's current lead */
 const PREVIOUS_LEAD_FIELD = 'UF_CRM_1791215613';
@@ -46,16 +49,29 @@ async function calculate({ from, to }) {
   /* ---- Deal Acceptance Rate ---- */
   const acceptance = { weekly: weeks.map(emptyAcceptance), monthly: Object.fromEntries(months.map(month => [month, emptyAcceptance()])), total: emptyAcceptance(), daily: {} };
   const axedDeals = [];
+  const exits = [];
   for (const [dealId, rows] of history) {
     rows.forEach((row, index) => {
       if (index === 0 || rows[index - 1].STAGE_ID !== PRESENTATION || row.STAGE_ID === PRESENTATION) return;
       const day = etDay(row.CREATED_TIME);
       if (day < from || day > to) return;
       const kind = ACCEPTED.includes(row.STAGE_ID) ? 'accepted' : row.STAGE_ID === AXED ? 'axed' : row.STAGE_ID === LOI ? 'toLoi' : 'other';
-      for (const bucket of [acceptance.weekly[weekIndex.get(mondayOf(day))], acceptance.monthly[day.slice(0, 7)], acceptance.total]) bucket[kind]++;
-      (acceptance.daily[day] = acceptance.daily[day] || emptyAcceptance())[kind]++;
-      if (kind === 'axed') axedDeals.push({ id: dealId, day, url: `${portal}/crm/deal/details/${dealId}/` });
+      exits.push({ dealId, day, kind });
     });
+  }
+  /* deals Axed with the reason "Other - Internal" are not the deal's fault, so they stay out of the rate */
+  const internalAxed = new Set();
+  const axedIds = [...new Set(exits.filter(exit => exit.kind === 'axed').map(exit => exit.dealId))];
+  for (const ids of chunk(axedIds, 50)) {
+    (await listPaged('crm.deal.list', { filter: { ID: ids }, select: ['ID', AXED_REASON_FIELD] }, listItems))
+      .forEach(deal => { if (String(deal[AXED_REASON_FIELD]) === OTHER_INTERNAL) internalAxed.add(String(deal.ID)); });
+  }
+  let excludedInternal = 0;
+  for (const { dealId, day, kind } of exits) {
+    if (kind === 'axed' && internalAxed.has(String(dealId))) { excludedInternal++; continue; }
+    for (const bucket of [acceptance.weekly[weekIndex.get(mondayOf(day))], acceptance.monthly[day.slice(0, 7)], acceptance.total]) bucket[kind]++;
+    (acceptance.daily[day] = acceptance.daily[day] || emptyAcceptance())[kind]++;
+    if (kind === 'axed') axedDeals.push({ id: dealId, day, url: `${portal}/crm/deal/details/${dealId}/` });
   }
   axedDeals.sort((a, b) => (a.day < b.day ? 1 : -1));
   const addRates = bucket => ({ ...bucket, rate: rate(bucket.accepted, bucket.accepted + bucket.axed) });
@@ -145,12 +161,12 @@ async function calculate({ from, to }) {
       monthly: Object.fromEntries(Object.entries(acceptance.monthly).map(([month, bucket]) => [month, addRates(bucket)])),
       total: addRates(acceptance.total),
       daily: acceptance.daily,
-      axedDeals: axedDeals.slice(0, MAX_LISTED), axedDealsTotal: axedDeals.length,
+      axedDeals: axedDeals.slice(0, MAX_LISTED), axedDealsTotal: axedDeals.length, excludedInternal,
       assistantDealManagers
     },
     sourcing: { leads: sourcingLeads, dealsNotUnderALead: notUnderALead, dealsCreditedByPreviousLead: viaPreviousLead, unmappedAssociates },
     notes: [
-      'Deal Acceptance Rate = deals moved from Video Presentation to Broker Intro Call, Seller Call or IOI Stage, divided by those plus deals Axed from Video Presentation. Deals that went straight to LOI Stage, or to any other stage, are shown separately and are not in the rate. Deals still sitting in Video Presentation are not counted yet.',
+      'Deal Acceptance Rate = deals moved from Video Presentation to Broker Intro Call, Seller Call or IOI Stage, divided by those plus deals Axed from Video Presentation. Deals Axed with the reason "Other - Internal" are not counted. Deals that went straight to LOI Stage, or to any other stage, are shown separately and are not in the rate. Deals still sitting in Video Presentation are not counted yet.',
       'Bitrix has no link between an Assistant Deal Manager and specific associates, so the acceptance rate is calculated across all associates and shown on each Assistant Deal Manager.',
       'Sourcing Quality = deals moved into Valuation Modeling or Valuation Model For Review that later reached Video Presentation, divided by all deals moved in. Deals still in valuation count as not yet advanced, so recent weeks are not final. Deals are credited to the deal\'s Responsible person.',
       'A deal counts for the lead named in its Previous Team Lead field when that field is filled (whoever owns the deal, and even if the owner has since left); a deal with no Previous Team Lead counts for the lead on the profile of the deal owner (Team Leader Name), even if the owner has moved to another role or left. An associate belongs to a Deal Sourcing Lead through the "Team Leader Name" text on their Bitrix profile (Rox, Moeez, Lemon, EA, Rana), matched to the lead by full name (EA = Emmanuel Dominguez Amboya, Rox = Ma. Roxette Molina Rojas, Moeez = Moeez Ul Hassan Khan, Rana = Rana Kamilah Macauba Torres, Lemon = Lemmuel Rafael De Guzman).'
