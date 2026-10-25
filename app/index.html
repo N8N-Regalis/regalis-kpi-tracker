@@ -113,6 +113,9 @@ svg{display:block;flex:none}
 
 /* ============ PAGE ============ */
 .content{flex:1;overflow-y:auto}
+.to-top{position:fixed;right:22px;bottom:22px;z-index:60;width:40px;height:40px;border-radius:50%;border:1px solid var(--line2);background:var(--panel);color:var(--tx);box-shadow:var(--sh2);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .15s}
+.to-top.show{opacity:1;pointer-events:auto}
+.to-top:hover{background:var(--hover,var(--panel))}
 .page{max-width:1340px;margin:0 auto;padding:26px 24px 80px}
 .ph{margin-bottom:22px}
 .pt{font-size:23px;font-weight:680;letter-spacing:-.022em;margin:0;display:flex;align-items:center;gap:9px}
@@ -427,7 +430,7 @@ table.tbl td .tag{vertical-align:middle}
 .sop li b{font-weight:650}
 .sop li .sd{font-size:13px;color:var(--tx2);line-height:1.6}
 @media print{
-  .nav,.top,.mob,.toasts,.slink,.btn{display:none!important}
+  .nav,.top,.mob,.toasts,.slink,.btn,.to-top{display:none!important}
   .app{display:block;height:auto}.content{overflow:visible}
   .page{max-width:100%;padding:0}
   body{background:#fff}
@@ -462,6 +465,14 @@ table.tbl td .tag{vertical-align:middle}
       <form method="post" action="/logout" style="margin:0"><button class="tbtn" type="submit" data-tip="Sign out of the tracker." data-hdr="Sign out"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg></button></form>
     </header>
     <div class="content" id="content"></div>
+    <button class="to-top" id="toTop" type="button" aria-label="Back to top" title="Back to top"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    <script>
+    (function(){
+      var c=document.getElementById('content'),b=document.getElementById('toTop');
+      c.addEventListener('scroll',function(){b.classList.toggle('show',c.scrollTop>400);},{passive:true});
+      b.addEventListener('click',function(){c.scrollTo({top:0,behavior:'smooth'});});
+    })();
+    </script>
   </div>
 </div>
 <div class="pop" id="pop"></div>
@@ -2913,7 +2924,7 @@ function signedLoiCard(person){
   const lastWeek=lastDone?analyst.weekly[lastDone.i]:null;
   const status=analyst.inRamp?`Not scored (ramp until ${analyst.rampEnd})`
     :zeroTwoMonths?'Below target (0 signed in the last 2 full months)'
-    :lastWeek==null?'No Data':lastWeek>=2?'Exceptional':lastWeek>=1?'Target':'No signed LOI last week (not below target yet)';
+    :lastWeek==null?(d.weeks.some(w=>w.inProgress)?'In progress':'No Data'):lastWeek>=2?'Exceptional':lastWeek>=1?'Target':'No signed LOI last week (not below target yet)';
   noteScore('Signed LOIs per Week',status);
   noteSeries('Signed LOIs per Week','week',d.weeks.map((w,i)=>({label:loiShortDay(w.start),iso:w.start,text:analyst.inRamp?'No Data':w.inProgress?'In progress':loiWeekZone(analyst.weekly[i])})));
   const rows=d.weeks.map((w,i)=>[liveEscape(loiShortDay(w.start))+(w.inProgress?' (in progress)':''),analyst.weekly[i],w.inProgress?'—':loiWeekZone(analyst.weekly[i])]);
@@ -3028,7 +3039,7 @@ function notionKpiCard(person){
     const qOf=m=>`${m.slice(0,4)}-Q${Math.ceil(Number(m.slice(5,7))/3)}`;
     const quarters=[...new Set(months.map(qOf))];
     const lastDone=[...months].reverse().find(m=>m!==nowMonth);
-    const status=lastDone?zone(lastDone,countIn(lastDone)):'No Data';
+    const status=lastDone?zone(lastDone,countIn(lastDone)):'In progress';
     noteScore('Process Improvements',status);
     noteSeries('Process Improvements','month',months.map(m=>({label:m,text:zone(m,countIn(m))})));
     return wrap('Notion · Process Improvements · Ops Manager',
@@ -3058,10 +3069,10 @@ function dealsPresentedCard(person){
   const zero=i=>weekly.filter(c=>c.weekly[i]===0).length;
   const zoneOf=i=>!weekly.length?'—':zero(i)>0?'Below target':weekly.every(c=>c.weekly[i]>=2)?'Exceptional':'Target';
   const monthNow=iso(TODAY).slice(0,7),monthPrev=d.months.filter(m=>m<monthNow).pop();
-  const weeklyZone=!weekly.length?null:last==null?'No Data':zoneOf(last);
-  const monthlyZone=!monthly.length?null:!monthPrev?'No Data':monthly.every(c=>(c.monthly[monthPrev]||0)>=need[c.volume])?'Target':'Below target';
+  const weeklyZone=!weekly.length?null:last==null?(weeks.some(w=>w.inProgress)?'In progress':'No Data'):zoneOf(last);
+  const monthlyZone=!monthly.length?null:!monthPrev?'In progress':monthly.every(c=>(c.monthly[monthPrev]||0)>=need[c.volume])?'Target':'Below target';
   const parts=[weeklyZone,monthlyZone].filter(Boolean);
-  const status=!parts.length?'No Data':parts.includes('Below target')?'Below target':parts.includes('No Data')?'No Data':parts.includes('Target')?'Target':'Exceptional';
+  const status=!parts.length?'No Data':parts.includes('Below target')?'Below target':parts.includes('In progress')?'In progress':parts.includes('No Data')?'No Data':parts.includes('Target')?'Target':'Exceptional';
   noteScore('Deals Presented per Client per Week',status);
   if(weekly.length)noteSeries('Deals Presented per Client per Week','week',weeks.map((w,i)=>({label:loiShortDay(w.start),iso:w.start,text:w.inProgress?'In progress':zoneOf(i)})));
   const wk=w=>liveEscape(loiShortDay(w.start))+(w.inProgress?'*':'');
@@ -3219,7 +3230,7 @@ function dealQualityCards(person){
     const monthNow=iso(TODAY).slice(0,7);
     const months=Object.keys(a.monthly).sort();
     const lastMonth=months.filter(m=>m<monthNow).pop();
-    const status=lastMonth?acceptZone(a.monthly[lastMonth].rate):'No Data';
+    const status=lastMonth?acceptZone(a.monthly[lastMonth].rate):'In progress';
     noteScore('Deal Acceptance Rate',status);
     noteSeries('Deal Acceptance Rate','week',weeks.map((w,i)=>({label:loiShortDay(w.start),iso:w.start,text:w.inProgress?'In progress':acceptZone(a.weekly[i].rate)})));
     const row=(label,x,inProg)=>[label,x.accepted,x.axed,x.toLoi+x.other,pct(x.rate),inProg?'In progress':acceptZone(x.rate)];
@@ -3234,7 +3245,7 @@ function dealQualityCards(person){
   if(!lead)return wrap('Bitrix deals · Sourcing Quality',`<p style="font-size:13.5px;color:var(--tx2)">No M&A Associates have this person as their Team Leader Name in Bitrix.</p>`);
   const done=weeks.map((w,i)=>i).filter(i=>!weeks[i].inProgress);
   const last=done[done.length-1];
-  const status=last==null?'No Data':acceptZone(lead.weekly[last].rate);
+  const status=last==null?(weeks.some(w=>w.inProgress)?'In progress':'No Data'):acceptZone(lead.weekly[last].rate);
   noteScore('Sourcing Quality',status);
   noteSeries('Sourcing Quality','week',weeks.map((w,i)=>({label:loiShortDay(w.start),iso:w.start,text:w.inProgress?'In progress':acceptZone(lead.weekly[i].rate)})));
   const line=(label,x,inProg)=>[label,x.transferred,x.advanced,x.axed,x.pending,pct(x.rate),inProg?'In progress':acceptZone(x.rate)];
@@ -3262,7 +3273,8 @@ function valuationOutputCard(person){
     const zone=n=>n>=g.exceptional?'Exceptional':n>=g.floor?'Target':'Below target';
     const result=x=>x.state==='met'?'Met':x.state==='gap'?'KPI gap':'No work arrived';
     const full=p.daily.filter(x=>x.day<today),last=full[full.length-1];
-    noteScore(g.name,last?zone(last.built):'No Data');
+    const pending=p.daily.some(x=>x.day>=today)?'In progress':'No Data';
+    noteScore(g.name,last?zone(last.built):pending);
     const byWeek=new Map();
     p.daily.forEach(x=>{const w=mondayOfDay(x.day);const e=byWeek.get(w)||{days:0,met:0,gap:0,built:0,high:0,inProg:false};e.days++;e.built+=x.built;if(x.state==='met')e.met++;if(x.state==='gap')e.gap++;if(x.built>=g.exceptional)e.high++;if(x.day>=today)e.inProg=true;byWeek.set(w,e);});
     noteSeries(g.name,'week',[...byWeek.entries()].map(([w,e])=>({label:loiShortDay(w),iso:w,text:e.inProg?'In progress':!e.days?'No Data':e.built/e.days>=g.exceptional?'Exceptional':e.built/e.days>=g.floor?'Target':'Below target'})));
@@ -3276,7 +3288,7 @@ function valuationOutputCard(person){
     return `<div style="margin-top:14px;font-size:13.5px;font-weight:620">${liveEscape(g.name)}</div>
       <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">${intro} A day below ${g.goal} is a KPI gap when deals arrived before the 4:00 PM cutoff.</p>
       ${sheetTable(['Last full working day','Done','Arrived by 4 PM','Zone','Result','Average per day (range)'],
-        [last?[liveEscape(loiShortDay(last.day)),last.built,last.arrived,zone(last.built),result(last),p.daily.length?Math.round(total/p.daily.length*10)/10:'—']:['—','—','—','No Data','—','—']])}
+        [last?[liveEscape(loiShortDay(last.day)),last.built,last.arrived,zone(last.built),result(last),p.daily.length?Math.round(total/p.daily.length*10)/10:'—']:['—','—','—',pending,'—','—']])}
       ${sheetTable(['Week of','Working days','Days at or above '+g.goal,'KPI gap days','Average per day','Total',k==='videos'?'Sustained Exceptional week':'—'],weekRows)}
       <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">By day</summary>
         ${sheetTable(['Day','Done','Arrived by 4 PM','Zone','Result'],p.daily.slice().reverse().map(x=>[liveEscape(loiShortDay(x.day))+(x.day>=today?' (in progress)':''),x.built,x.arrived,x.day>=today?'—':zone(x.built),x.day>=today?'—':result(x)]))}</details>`;
@@ -3294,9 +3306,9 @@ function teamHealthCard(person){
   if(!d)return wrap(`<p style="font-size:13.5px;color:var(--tx2)">${liveEscape(slowNote(L,'Team sourcing data has not loaded.'))}</p>`);
   const zone=share=>share==null?'—':share>=100?'Exceptional':share>=90?'Target':'Below target';
   const done=d.months.filter(m=>!m.inProgress),last=done[done.length-1];
-  const status=last?zone(last.share):'No Data';
   const curM=d.months.find(m=>m.inProgress);
-  noteScore('Team Sourcing Health',last?status:'No Data'+(curM?' (in progress: '+curM.met+' of '+curM.headcount+' associates at baseline so far)':''));
+  const status=last?zone(last.share):curM?'In progress':'No Data';
+  noteScore('Team Sourcing Health',last?status:curM?'In progress ('+curM.met+' of '+curM.headcount+' associates at baseline so far)':'No Data');
   noteSeries('Team Sourcing Health','month',d.months.map(m=>({label:m.month,text:m.inProgress?'In progress':zone(m.share)})));
   const rows=d.months.map(m=>[m.month+(m.inProgress?' (in progress)':''),m.headcount,m.met,m.share==null?'—':m.share+'%',m.inProgress?'In progress':zone(m.share),m.teamTotal,m.teamTarget]);
   const people=d.associates.slice().sort((a,b)=>(a.monthly[last?last.month:'']||0)-(b.monthly[last?last.month:'']||0));
@@ -3319,7 +3331,7 @@ function closingCard(person){
   const link=(url,text)=>`<a class="srcl" href="${liveEscape(url)}" target="_blank" rel="noopener" data-src="1">${text} ${ic('link',11,2.2)}</a>`;
   const zone=n=>n>=d.exceptional?'Exceptional':n>=d.target?'Target':'Below target';
   const full=d.months.filter(m=>m<d.thisMonth),lm=full[full.length-1];
-  const status=a.belowTarget?'Below target (0 for '+a.zeroStreak+' months)':!lm?'No Data (in progress: '+(a.monthly[d.thisMonth]||0)+' so far this month)':a.monthly[lm]>=d.target?zone(a.monthly[lm]):'Zero last month ('+a.zeroStreak+' in a row)';
+  const status=a.belowTarget?'Below target (0 for '+a.zeroStreak+' months)':!lm?'In progress ('+(a.monthly[d.thisMonth]||0)+' so far this month)':a.monthly[lm]>=d.target?zone(a.monthly[lm]):'Zero last month ('+a.zeroStreak+' in a row)';
   noteScore('Signed Purchase Agreements per Month',status);
   noteSeries('Signed Purchase Agreements per Month','month',d.months.map(m=>({label:m,text:m===d.thisMonth?'In progress':zone(a.monthly[m])})));
   const monthRows=d.months.slice().reverse().map(m=>[m+(m===d.thisMonth?' (in progress)':''),a.monthly[m],m===d.thisMonth?'In progress':zone(a.monthly[m])]);
@@ -3338,25 +3350,25 @@ function conversionCard(person){
   if(!d)return wrap(`<p style="font-size:13.5px;color:var(--tx2)">${liveEscape(slowNote(L,'Conversion data has not loaded.'))}</p>`);
   const link=(url,text)=>`<a class="srcl" href="${liveEscape(url)}" target="_blank" rel="noopener" data-src="1">${text} ${ic('link',11,2.2)}</a>`;
   const pct=x=>x==null?'—':x+'%';
-  const loiZone=r=>r==null?'No Data':r>=18?'Exceptional':r>=13?'Target':'Below target';
-  const clZone=r=>r==null?'No Data':r>=80?'Exceptional':r>=70?'Target':'Below target';
+  const loiZone=(r,w)=>r==null?(w&&w.inProgress?'In progress':'No Data'):r>=18?'Exceptional':r>=13?'Target':'Below target';
+  const clZone=(r,w)=>r==null?(w&&w.inProgress?'In progress':'No Data'):r>=80?'Exceptional':r>=70?'Target':'Below target';
   const win=w=>liveEscape(w.start)+' to '+liveEscape(w.end)+(w.inProgress?' (today)':'');
   const stageName=s=>liveEscape(String(s).replace(/_/g,' ').toLowerCase());
   const cur=d.loi[0],cc=d.closing[0];
-  if(cur)noteScore('LOI Conversion Rate',loiZone(cur.rate));
-  if(cc)noteScore('Closing Conversion Rate',clZone(cc.rate));
+  if(cur)noteScore('LOI Conversion Rate',loiZone(cur.rate,cur));
+  if(cc)noteScore('Closing Conversion Rate',clZone(cc.rate,cc));
   noteSeries('LOI Conversion Rate','month',d.loi.slice().reverse().map(w=>({label:w.end,text:w.inProgress?'In progress':loiZone(w.rate)})));
   noteSeries('Closing Conversion Rate','month',d.closing.slice().reverse().map(w=>({label:w.end,text:w.inProgress?'In progress':clZone(w.rate)})));
   return wrap(`<div style="margin-top:6px;font-size:13.5px;font-weight:620">LOI Conversion Rate · rolling ${d.loiMonths} months</div>
     <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Deals that first moved into LOI Stage in the window, and the share that have a LOI Signed Date. Exceptional: 18% or more · Target: 13% or more · Below target: under 13%. LOI Signed Date is rarely filled for recent deals, which can understate the rate.</p>
-    ${sheetTable(['Current window','Entered LOI Stage','Signed LOI','Rate','Zone'],[[win(cur),cur.entered,cur.signed,pct(cur.rate),loiZone(cur.rate)]])}
-    ${sheetTable(['Window','Entered LOI Stage','Signed LOI','Rate','Zone'],d.loi.map(w=>[win(w),w.entered,w.signed,pct(w.rate),loiZone(w.rate)]))}
+    ${sheetTable(['Current window','Entered LOI Stage','Signed LOI','Rate','Zone'],[[win(cur),cur.entered,cur.signed,pct(cur.rate),loiZone(cur.rate,cur)]])}
+    ${sheetTable(['Window','Entered LOI Stage','Signed LOI','Rate','Zone'],d.loi.map(w=>[win(w),w.entered,w.signed,pct(w.rate),loiZone(w.rate,w)]))}
     <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Signed LOIs in the current window (${cur.signed})</summary>
       ${cur.signed?sheetTable(['Deal (opens in Bitrix)','Entered LOI Stage (ET)','Now'],d.deals.loi.filter(x=>x.outcome==='Signed LOI').map(x=>[link(x.url,'Deal #'+liveEscape(x.id)),liveEscape(x.day),stageName(x.stage)])):'<p style="font-size:13px;color:var(--tx2)">None.</p>'}</details>
     <div style="margin-top:16px;font-size:13.5px;font-weight:620">Closing Conversion Rate · rolling ${d.closingMonths} months</div>
     <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Deals that first moved into Closing in the window. Rate = Deal Closed out of Deal Closed plus Axed, because deals still in Closing or On Hold have no outcome yet. Deals Axed with the reason "Other - Internal" are not counted. Exceptional: 80% or more · Target: 70% or more · Below target: under 70%. The Bitrix End date field is filled on every deal (it is the expected close date), so Deal Closed is what decides success.</p>
-    ${sheetTable(['Current window','Entered Closing','Deal Closed','Axed','Still open','Rate','Share of all entered','Zone'],[[win(cc),cc.entered,cc.closed,cc.axed,cc.open,pct(cc.rate),pct(cc.rateOfEntered),clZone(cc.rate)]])}
-    ${sheetTable(['Window','Entered Closing','Deal Closed','Axed','Still open','Rate','Share of all entered','Zone'],d.closing.map(w=>[win(w),w.entered,w.closed,w.axed,w.open,pct(w.rate),pct(w.rateOfEntered),clZone(w.rate)]))}
+    ${sheetTable(['Current window','Entered Closing','Deal Closed','Axed','Still open','Rate','Share of all entered','Zone'],[[win(cc),cc.entered,cc.closed,cc.axed,cc.open,pct(cc.rate),pct(cc.rateOfEntered),clZone(cc.rate,cc)]])}
+    ${sheetTable(['Window','Entered Closing','Deal Closed','Axed','Still open','Rate','Share of all entered','Zone'],d.closing.map(w=>[win(w),w.entered,w.closed,w.axed,w.open,pct(w.rate),pct(w.rateOfEntered),clZone(w.rate,w)]))}
     <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Deals that entered Closing in the current window (${d.deals.closing.length})</summary>
       ${d.deals.closing.length?sheetTable(['Deal (opens in Bitrix)','Entered Closing (ET)','Now'],d.deals.closing.map(x=>[link(x.url,'Deal #'+liveEscape(x.id)),liveEscape(x.day),x.stage==='WON'?'Deal Closed':x.stage==='LOSE'?'Axed':stageName(x.stage)])):'<p style="font-size:13px;color:var(--tx2)">None.</p>'}</details>`);
 }
@@ -3370,7 +3382,7 @@ function teamLoiClosingCard(person){
   const zone=share=>share==null?'—':share>=100?'Exceptional':share>=90?'Target':'Below target';
   const done=d.months.filter(m=>!m.inProgress),last=done[done.length-1];
   const curT=d.months.find(m=>m.inProgress);
-  noteScore('Team LOI & Closing Health',last?zone(last.share):'No Data'+(curT?' (in progress: '+curT.met+' of '+curT.headcount+' at baseline so far)':''));
+  noteScore('Team LOI & Closing Health',last?zone(last.share):curT?'In progress ('+curT.met+' of '+curT.headcount+' at baseline so far)':'No Data');
   noteSeries('Team LOI & Closing Health','month',d.months.map(m=>({label:m.month,text:m.inProgress?'In progress':zone(m.share)})));
   const rows=d.months.slice().reverse().map(m=>[m.month+(m.inProgress?' (in progress)':''),m.headcount,m.met,m.share==null?'—':m.share+'%',m.inProgress?'In progress':zone(m.share)]);
   return wrap(`<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Share of the team (every Deal Analyst and Closing Analyst) at their own monthly baseline. Deal Analyst: ${d.loiPerMonth} signed LOIs a month (1 a week). Closing Analyst: ${d.closingPerMonth} deal entering Closing a month. Exceptional: 100% of the team · Target: 90% or more · Below target: under 90%. Anyone still in the 45-day ramp is left out of that month.</p>

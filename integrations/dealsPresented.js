@@ -1,4 +1,5 @@
 const bitrix = require('./bitrix');
+const { reportToday } = require('./config');
 const { TIME_ZONE, etDay, mondayOf, addDays, listPaged, listItems, chunk, fullName, historyFor, entriesInto, weeksBetween, resolveRange } = require('./crmHistory');
 
 /* Deals Presented per Client per Week (Score Card Mapping KPI 29, M&A Associate).
@@ -68,7 +69,9 @@ async function calculate({ from: rangeFrom, to }) {
   }
   for (const [dealId, move] of moves) if (!move.day || move.day < from || move.day > to) moves.delete(dealId);
 
-  const weeks = weeksBetween(from, to);
+  /* nothing is presented on a weekend, so a week is finished once its Friday has passed */
+  const today = reportToday();
+  const weeks = weeksBetween(from, to).map(week => ({ ...week, inProgress: addDays(week.start, 4) >= today }));
   let unmatched = 0;
   for (const move of moves.values()) {
     const client = clients.get(contactOf.get(move.dealId));
