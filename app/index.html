@@ -2994,7 +2994,14 @@ function signedLoiCard(person){
     for(let k=done.length-1;k>=0;k--){if(d.team.weekly[done[k].i].total<target)streak++;else break;}
     const status=streak===0?'Exceptional':streak<=2?'Target':'Below target';
     noteScore('Team Signed LOIs per Week',status);
-    noteSeries('Team Signed LOIs per Week','week',d.weeks.map((w,i)=>({label:loiShortDay(w.start),iso:w.start,text:w.inProgress?'In progress':d.team.weekly[i].total>=target?'Target':'No signed LOI (missed, not below target yet)'})));
+    /* a miss is Needs Attention until it is the 3rd week in a row, then Below target */
+    let run=0;
+    noteSeries('Team Signed LOIs per Week','week',d.weeks.map((w,i)=>{
+      if(w.inProgress)return {label:loiShortDay(w.start),iso:w.start,text:'In progress'};
+      const met=d.team.weekly[i].total>=target;
+      run=met?0:run+1;
+      return {label:loiShortDay(w.start),iso:w.start,text:met?'Target':run>2?`Below target (missed ${run} weeks in a row)`:'No signed LOI (missed, not below target yet)'};
+    }));
     const rows=d.weeks.map((w,i)=>{const t=d.team.weekly[i].total;
       return [liveEscape(loiShortDay(w.start))+(w.inProgress?' (in progress)':''),t,target,w.inProgress?'—':t>=target?'Met':'Missed'];});
     return wrap('LOI tracker · Team Signed LOIs per Week',
