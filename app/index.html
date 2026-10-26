@@ -1088,7 +1088,9 @@ const DATA={mode:'connecting',generatedAt:null,error:null,bitrix:{connected:fals
   teamLoiClosing:{data:null,error:null,loading:false},
   onboarding:{data:null,error:null,loading:false},
   timeToFill:{data:null,error:null,loading:false},
-  audits:{data:null,error:null,loading:false}};
+  audits:{data:null,error:null,loading:false},
+  kpiCheck:{data:null,error:null,loading:false},
+  pipelineHealth:{data:null,error:null,loading:false}};
 let COUNT_TO=null; /* end of the chosen window; null means today */
 let COUNT_FROM='2026-10-01'; /* start of the chosen window */
 let COUNT_START='2026-10-01'; /* the day counting started: nothing earlier can be chosen */
@@ -1997,48 +1999,67 @@ const KCHK=[
  {id:'process_improvements',v:'weak',r:'Weak',
   d:'Counting initiatives does not capture whether they worked. Two small changes score the same as one that saved 40 hours a week.',
   note:'Consider measuring the impact of improvements rather than the number of them.',keep:false},
+ {id:'val_models',v:'mid',r:'Moderate',d:'',keep:true},
+ {id:'purchase_agreements',v:'mid',r:'Moderate',d:'',keep:true},
+ {id:'loi_conversion',v:'mid',r:'Moderate',d:'',keep:true},
+ {id:'closing_conversion',v:'mid',r:'Moderate',d:'',keep:true},
  {id:'hr_turnaround',v:'weak',r:'Weak',
   d:'Important for the business to run, but has no measurable effect on deal flow or revenue. Fine to keep as a hygiene measure — just do not treat it as a company performance indicator.',keep:true}
 ];
 const kchkRows=()=>KCHK.map(r=>({...r,def:kById(r.id)})).filter(r=>r.def&&r.def.status==='active');
+function loadKpiCheck(force){
+  DATA.kpiCheck={data:DATA.kpiCheck.data,error:null,loading:true};
+  fetch('/api/kpi/kpi-check'+(force?'?refresh=1':''),{cache:'no-store'}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||'Request failed');return d;})
+    .then(d=>{DATA.kpiCheck={data:d,error:null,loading:false};})
+    .catch(e=>{DATA.kpiCheck={data:null,error:e.message,loading:false};})
+    .then(()=>{if(S.view==='kpicheck')render();});
+}
 function vKpiCheck(){
-  const col={strong:'g',mid:'w',weak:''};
-  const rows=kchkRows();
-  const nS=rows.filter(r=>r.v==='strong').length, nM=rows.filter(r=>r.v==='mid').length,
-        nW=rows.filter(r=>r.v==='weak').length, nC=rows.filter(r=>r.note).length;
+  const K=DATA.kpiCheck;
+  if(!K.data&&!K.loading&&!K.error)loadKpiCheck(false);
+  const col={strong:'g',mid:'w',weak:'',none:''};
+  const tests=new Map(((K.data&&K.data.tests)||[]).map(t=>[t.id,t]));
+  const rows=kchkRows().map(r=>({...r,t:tests.get(r.id)||null}));
+  const withTest=rows.filter(r=>r.t),internal=rows.filter(r=>!r.t);
+  const rated=withTest.filter(r=>r.t.key!=='none');
+  const nS=rated.filter(r=>r.t.key==='strong').length, nM=rated.filter(r=>r.t.key==='mid').length,
+        nW=rated.filter(r=>r.t.key==='weak').length;
   const paused=KCHK.map(r=>kById(r.id)).filter(k=>k&&k.status!=='active');
+  const body=K.data?'':`<div class="sec">${liveNoData(K.loading?'Reading deal history from Bitrix. This takes a minute or so.':(K.error||'KPI Check has not loaded.'))}</div>`;
   return `<div class="page">
     <div class="ph">
       <h1 class="pt">KPI Check</h1>
-      <div class="ps">Are the things you measure actually the things that matter? This page compares each KPI against real business outcomes — deals closed, LOIs signed, revenue — and tells you whether it is a useful signal or just activity.</div>
-    </div>
-    <div class="sec">
+      <div class="ps">Are the things you measure actually the things that matter? Each KPI is checked against a business outcome (deals closed, LOIs, accepted deals) over the last ${K.data?K.data.weeks:26} finished weeks.</div>
+    </div>${body}
+    ${K.data?`<div class="sec">
       <div class="statrow">
         <div><div class="stat"><span class="n" style="color:var(--good)">${nS}</span><span class="l">Strong signal ${T('When this KPI moves, business outcomes move with it. Worth managing closely.','Strong')}</span></div></div>
         <div><div class="stat"><span class="n" style="color:var(--warn)">${nM}</span><span class="l">Moderate signal ${T('Some relationship to outcomes but noisy. Useful as supporting information.','Moderate')}</span></div></div>
         <div><div class="stat"><span class="n" style="color:var(--tx3)">${nW}</span><span class="l">Weak signal ${T('No measurable link to deal outcomes. May still be worth tracking for internal reasons, but should not drive company decisions.','Weak')}</span></div></div>
-        <div><div class="stat"><span class="n" style="color:var(--acc)">${nC}</span><span class="l">Suggested changes</span></div></div>
+        <div><div class="stat"><span class="n" style="color:var(--acc)">${internal.length}</span><span class="l">Internal measures ${T('Tasks, HR and process KPIs that have no deal outcome to check against. They are listed below.','Internal measures')}</span></div></div>
       </div>
     </div>
     <div class="sec">
-      <div class="note">${ic('info',17,2)}<div><b>How to read this.</b> A strong signal means that when the number moves, something in the business moves with it. A weak signal is not necessarily a bad KPI — it just means it should not be used to judge company performance.</div></div>
+      <div class="note">${ic('info',17,2)}<div><b>How to read this.</b> A strong signal means that when the number moves, something in the business moves with it. A weak signal is not necessarily a bad KPI — it just means it should not be used to judge company performance. A link between two numbers is not proof that one causes the other.</div></div>
     </div>
     <div class="sec">
       <div class="card"><table class="tbl">
         <thead><tr><th>KPI</th><th>Whose</th><th>Signal strength</th><th>What we found</th></tr></thead>
-        <tbody>${rows.map(r=>`<tr>
+        <tbody>${withTest.map(r=>`<tr>
           <td><b>${r.def.n}</b></td>
           <td style="color:var(--tx3)">${r.def.role}</td>
-          <td><span class="tag ${col[r.v]}">${r.r}</span></td>
-          <td style="max-width:430px;line-height:1.55">${r.d}
-            ${r.note?`<div style="margin-top:7px;font-size:12.5px;color:var(--acc);display:flex;gap:6px;align-items:flex-start"><span style="flex:none;margin-top:2px;line-height:0">${ic('info',13,2)}</span><span>${r.note}</span></div>`:''}</td>
+          <td><span class="tag ${col[r.t.key]}">${liveEscape(r.t.rating)}</span></td>
+          <td style="max-width:430px;line-height:1.55">${liveEscape(r.t.detail)}<div style="margin-top:5px;font-size:12.5px;color:var(--tx3)">Counted: ${liveEscape(r.t.proxy)} · compared with ${liveEscape(r.t.outcome)}, up to ${r.t.maxLag} weeks later.</div></td>
         </tr>`).join('')}</tbody></table></div>
     </div>
-    <div class="sec">
-      <div class="note w">${ic('warn',17,2)}<div><b>Gaps worth knowing about.</b>
-        The LOI Team Lead target is still unconfirmed — it has no number in the KPI document, so nobody in that role can be scored until you confirm it in Settings &amp; Access.
-        Two KPIs flag a cadence conflict in the source document: Process Improvements has a quarterly target but is judged monthly, and Client Onboarding Calls is tracked daily for a monthly metric.</div></div>
-    </div>
+    ${internal.length?`<div class="sec">
+      <div class="sh"><span class="st" style="font-size:15px">Internal measures</span><span class="sn">No deal outcome to check against</span></div>
+      <div class="card">${internal.map(r=>`<div class="prow"><div class="pmain">
+        <div class="pnm">${r.def.n}</div>
+        <div class="prole">${r.def.role} · ${r.def.team}</div>
+        <div class="pkpi" style="color:var(--tx3)">${r.d}${r.note?' '+r.note:''}</div>
+      </div></div>`).join('')}</div>
+    </div>`:''}`:''}
     ${paused.length?`<div class="sec">
       <div class="sh"><span class="st" style="font-size:15px">Not being checked right now</span></div>
       <div class="card">${paused.map(k=>`<div class="prow"><div class="pmain">
@@ -2642,26 +2663,91 @@ function vLivePeople(){
       ${people.length?`<div class="card">${rows}</div>`:liveNoData('No contractors match the current search and filters.')}</div>`}
   </div>`;
 }
-function vLivePipeline(){
-  const bitrix=DATA.bitrix;
-  const max=Math.max(1,...PIPE.map(stage=>stage.c));
-  const categories=[...new Set(PIPE.map(stage=>stage.categoryName||'Default pipeline'))];
-  return `<div class="page"><div class="ph"><h1 class="pt">Pipeline Health</h1>
-    <div class="ps">Live CRM deal counts by configured Bitrix stage. Counts cover all retrieved deals; conversion and timing are not inferred.</div></div>
-    <div class="sec"><div class="statrow">
-      <div class="stat"><span class="n">${bitrix.totalDeals==null?'No Data':bitrix.totalDeals.toLocaleString()}</span><span class="l">CRM deals</span></div>
-      <div class="stat"><span class="n">${PIPE.length||'No Data'}</span><span class="l">Pipeline stages</span></div>
-      <div class="stat"><span class="n">${categories.length||'No Data'}</span><span class="l">Pipelines</span></div>
-      <div class="stat"><span class="n">No Data</span><span class="l">Conversion and cycle time</span></div>
-    </div></div>
-    ${liveErrorNote()}
-    <div class="sec"><div class="sh"><span class="st">Deals by stage</span><span class="sn">${S.lastRefresh?`Updated ${agoText(S.lastRefresh)}`:'Not synced'}</span></div>
-      ${PIPE.length?`<div class="card cp"><div class="fn">${categories.map(category=>`<div><h3 style="font-size:14px;margin:8px 0">${liveEscape(category)}</h3>
-        ${PIPE.filter(stage=>(stage.categoryName||'Default pipeline')===category).map(stage=>`<div class="fs" data-tip="${stage.c.toLocaleString()} deals in this stage" data-hdr="${liveEscape(stage.n)}">
-          <span class="nm">${liveEscape(stage.n)}</span><span class="bar"><i style="width:${Math.max(3,stage.c/max*100)}%"></i><span class="ct">${stage.c.toLocaleString()}</span></span>
-          <span class="cv">No Data</span></div>`).join('')}</div>`).join('')}</div></div>`
-      :liveNoData('Refresh to retrieve complete pipeline stages and deal counts.')}
+const PH_PRESETS=['Last 7 days','Last 30 days','Last 90 days','This month','Last month','Last 6 months'];
+function phRange(label){
+  const t=boardToday(),ym=t.slice(0,7);
+  const monthStart=(y,m)=>`${y}-${String(m).padStart(2,'0')}-01`;
+  const [y,m]=ym.split('-').map(Number);
+  if(label==='Last 7 days')return [addIsoDays(t,-6),t];
+  if(label==='Last 90 days')return [addIsoDays(t,-89),t];
+  if(label==='Last 6 months')return [addIsoDays(t,-182),t];
+  if(label==='This month')return [monthStart(y,m),t];
+  if(label==='Last month'){const py=m===1?y-1:y,pm=m===1?12:m-1;return [monthStart(py,pm),addIsoDays(monthStart(y,m),-1)];}
+  return [addIsoDays(t,-29),t];
+}
+function phQuery(force){
+  const parts=[];
+  if(S.pFrom&&S.pTo){parts.push('from='+S.pFrom);parts.push('to='+S.pTo);}
+  if(force)parts.push('refresh=1');
+  return parts.length?'?'+parts.join('&'):'';
+}
+function phDatePop(){
+  const [f,t]=S.pFrom&&S.pTo?[S.pFrom,S.pTo]:phRange('Last 30 days');
+  return `<div class="pophd">Show the pipeline for</div>
+    ${PH_PRESETS.map(k=>`<button class="popi ${(S.pPreset||'Last 30 days')===k?'on':''}" data-phpreset="${k}">${k}</button>`).join('')}
+    <div class="popdiv"></div><div class="pophd">Pick exact dates</div>
+    <div class="rangebox">
+      <input type="date" id="ph1" value="${f}" max="${boardToday()}">
+      <input type="date" id="ph2" value="${t}" max="${boardToday()}">
+      <button class="btn pri" id="phApply" style="justify-content:center">Apply range</button>
     </div>
+    <div class="popnote">The dates change the flow: deals sourced, the bars, the percentages, LOIs and closed deals. Deals in each step now, waiting times and the stuck banner always show today.</div>`;
+}
+function setPipelineRange(from,to,label){
+  S.pFrom=from;S.pTo=to;S.pPreset=label;
+  hidePop();loadPipelineHealth(false);render();
+  toast(`Pipeline showing ${from} to ${to}`,'cal');
+}
+function loadPipelineHealth(force){
+  DATA.pipelineHealth={data:DATA.pipelineHealth.data,error:null,loading:true};
+  fetch('/api/kpi/pipeline-health'+phQuery(force),{cache:'no-store'}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||'Request failed');return d;})
+    .then(d=>{DATA.pipelineHealth={data:d,error:null,loading:false};})
+    .catch(e=>{DATA.pipelineHealth={data:null,error:e.message,loading:false};})
+    .then(()=>{if(S.view==='pipeline')render();});
+}
+function vLivePipeline(){
+  const P=DATA.pipelineHealth,d=P.data;
+  if(!d&&!P.loading&&!P.error)loadPipelineHealth(false);
+  const days=n=>n==null?'—':(Math.round(n*10)/10)+(n===1?' day':' days');
+  const dateBtn=`<button class="ctl" id="phDateBtn" data-tip="Sets the dates for the flow numbers on this page." data-hdr="Pipeline dates">${ic('cal',14,2)} <b>${liveEscape(S.pPreset||'Last 30 days')}</b> ${ic('chev',13,2.2)}</button>`;
+  if(!d)return `<div class="page"><div class="ph"><h1 class="pt">Pipeline Health</h1>
+    <div class="ps">Where your deals are right now and where they are getting stuck.</div></div>
+    <div class="sec">${dateBtn}</div>
+    <div class="sec">${liveNoData(P.loading?'Reading deal history from Bitrix. This takes a minute or so.':(P.error||'Pipeline Health has not loaded.'))}</div></div>`;
+  const t=d.totals,b=d.bottleneck,w=d.windowDays,span=`${d.from} to ${d.to}`;
+  const mx=Math.max(1,...d.steps.map(s=>s.entered));
+  const banner=b
+    ?`<div class="note b">${ic('warn',17,2)}<div><b>One step is holding up the ones after it.</b> About ${b.inPerDay} deals a day reach ${liveEscape(b.name)} but only ${b.outPerDay} a day leave it, so the queue grows by about ${b.growsPerDay} a day. It now holds ${b.queue} deals, and the oldest has been waiting ${b.oldestWaitDays==null?'a long time':b.oldestWaitDays+' days'}${b.oldestUnknown?` (and ${b.oldestUnknown} arrived more than ${d.lookbackDays} days ago)`:''}.</div></div>`
+    :d.bottleneckChecked?`<div class="note">${ic('info',17,2)}<div><b>No step is backing up.</b> Every step with a queue of 10 or more deals is clearing deals at least as fast as new ones arrive, over ${span}.</div></div>`
+    :`<div class="note">${ic('info',17,2)}<div>The backed-up check compares today's queues with the flow, so it only runs when the dates end today.</div></div>`;
+  const rows=d.steps.map(s=>{
+    const stuck=b&&b.key===s.key;
+    const tip=`${s.entered.toLocaleString()} deals ${s.key==='sourced'?'were created':'moved into this step'} between ${span}.`+(s.current!=null?` ${s.current} are in it now.`:'')+(s.gotHerePct!=null?` ${s.gotHerePct}% of the deals that entered the step above also entered this one.`:'');
+    return `<div class="fs ${stuck?'stuck':''}" data-tip="${liveEscape(tip)}" data-hdr="${liveEscape(s.name)}">
+      <span class="nm">${liveEscape(s.name)}</span>
+      <span class="bar"><i style="width:${Math.max(3,s.entered/mx*100)}%"></i><span class="ct">${s.entered.toLocaleString()}</span></span>
+      <span class="cv">${s.gotHerePct!=null?`<b>${s.gotHerePct}%</b> got here`:'starting point'}</span></div>`;
+  }).join('');
+  const waitRows=d.steps.filter(s=>s.current!=null).map(s=>[liveEscape(s.name),s.current,days(s.medianWaitDays),days(s.oldestWaitDays)+(s.oldestUnknown?` (+${s.oldestUnknown} older than ${d.lookbackDays} days)`:'')]);
+  const otherRows=d.other.map(s=>[liveEscape(s.name),s.current,s.entered]);
+  return `<div class="page"><div class="ph"><h1 class="pt">Pipeline Health</h1>
+    <div class="ps">Where your deals are right now and where they are getting stuck. Each bar is how many deals moved into that step between the dates you pick. The percentage is how many of the deals that entered the step above also entered this one.</div></div>
+    <div class="sec" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${dateBtn}<span style="font-size:13px;color:var(--tx3)">${liveEscape(span)}${P.loading?' · updating…':''}</span></div>
+    <div class="sec"><div class="statrow">
+      <div><div class="stat"><span class="n">${t.sourced.toLocaleString()}</span><span class="l">Deals sourced</span></div></div>
+      <div><div class="stat"><span class="n">${t.lois.toLocaleString()}</span><span class="l">Moved into LOI Stage</span></div></div>
+      <div><div class="stat"><span class="n">${t.closed.toLocaleString()}</span><span class="l">Deals closed</span></div></div>
+      <div><div class="stat"><span class="n"${b?' style="color:var(--bad)"':''}>${b?b.queue.toLocaleString():'None'}</span><span class="l">Stuck in a backed-up step ${T('Deals waiting in the one step where more arrive than leave. None means no step is backing up.','Stuck')}</span></div></div>
+      <div><div class="stat"><span class="n">${t.sourcedToClosedPct==null?'—':t.sourcedToClosedPct+'%'}</span><span class="l">Closed ÷ sourced ${T('Deals closed divided by deals sourced in the same dates. They are different deals, so this is a rough guide.','Sourced to closed')}</span></div></div>
+    </div></div>
+    <div class="sec">${banner}</div>
+    <div class="sec"><div class="sh"><span class="st">Every step, in order</span><span class="sn">Hover a step for detail${DATA.bitrix&&S.lastRefresh?` · Updated ${agoText(S.lastRefresh)}`:''}</span></div>
+      <div class="card cp"><div class="fn">${rows}</div></div></div>
+    <div class="sec"><div class="sh"><span class="st">How long deals have been waiting</span></div>
+      ${sheetTable(['Step','Deals in it now','Typical wait (median)','Longest wait'],waitRows)}</div>
+    <div class="sec"><div class="sh"><span class="st">Other stages</span></div>
+      ${sheetTable(['Stage','Deals in it now','Moved in, '+span],otherRows)}</div>
+    ${t.complete?'':`<div class="sec"><div class="note w">${ic('warn',17,2)}<div>Only ${t.dealsRead.toLocaleString()} of ${t.dealsInBitrix.toLocaleString()} deals could be read, so counts in the steps may be low.</div></div></div>`}
   </div>`;
 }
 function vLiveKpiCheck(){
@@ -3976,7 +4062,7 @@ function openLivePerson(id){
 
 /* ===================== ROUTER ===================== */
 const VIEWS={overview:vLiveOverview,attention:vLiveAttention,bonus:vLiveBonus,warnings:vLiveWarnings,guide:vLiveGuide,
-  people:vLivePeople,pipeline:vLivePipeline,kpicheck:vLiveKpiCheck,reports:vLiveReports,status:vLiveStatus,admin:vAdmin};
+  people:vLivePeople,pipeline:vLivePipeline,kpicheck:vKpiCheck,reports:vLiveReports,status:vLiveStatus,admin:vAdmin};
 function render(){
   if(S.view==='admin'&&!S.admin)S.view='overview';
   document.getElementById('content').innerHTML=(VIEWS[S.view]||vOverview)();
@@ -4294,6 +4380,14 @@ document.addEventListener('click',e=>{
     if(!a||!b){toast('Pick both a start and an end date','info');return;}
     if(a>b){const t=a;a=b;b=t;}
     S.lpFrom=a;S.lpTo=b;S.lpPreset='Custom';hidePop();render();toast(`Showing results for ${a} to ${b}`,'cal');return;}
+  if(g('#phDateBtn')){showPop(g('#phDateBtn'),phDatePop());return;}
+  if(g('#phApply')){
+    let a=document.getElementById('ph1').value,b=document.getElementById('ph2').value;
+    if(!a||!b){toast('Pick both a start and an end date','info');return;}
+    if(a>b){const t=a;a=b;b=t;}
+    if(b>boardToday())b=boardToday();
+    setPipelineRange(a,b,'Custom');return;}
+  if(g('[data-phpreset]')){const k=g('[data-phpreset]').dataset.phpreset,[f,t]=phRange(k);setPipelineRange(f,t,k);return;}
   if(g('#lbDateBtn')){showPop(g('#lbDateBtn'),lbDatePop());return;}
   if(g('#lbSortBtn')){showPop(g('#lbSortBtn'),lbSortPop());return;}
   if(g('#kpiRetry')){retryKpis();toast('Reading the missing KPIs again','refresh');return;}

@@ -15,6 +15,8 @@ const { dealQuality } = require('./integrations/dealQuality');
 const { valuationOutput } = require('./integrations/valuationOutput');
 const { holidayList } = require('./integrations/holidays');
 const { teamHealth } = require('./integrations/teamHealth');
+const { kpiCheck } = require('./integrations/kpiCheck');
+const { pipelineHealth } = require('./integrations/pipelineHealth');
 const { closingAgreements } = require('./integrations/closingAgreements');
 const { conversion } = require('./integrations/conversion');
 const { teamLoiClosing } = require('./integrations/teamLoiClosing');
@@ -326,6 +328,27 @@ app.get('/api/kpi/valuation-output', async (req, res) => {
     }));
   } catch (error) {
     res.status(error.message.includes('must') || error.message.includes('limited') ? 400 : 502).json({ error: error.message });
+  }
+});
+
+app.get('/api/kpi/pipeline-health', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    res.json(await pipelineHealth({
+      from: typeof from === 'string' ? from : undefined,
+      to: typeof to === 'string' ? to : undefined,
+      force: req.query.refresh === '1'
+    }));
+  } catch (error) {
+    res.status(error.message.includes('must') || error.message.includes('limited') ? 400 : 502).json({ error: error.message });
+  }
+});
+
+app.get('/api/kpi/kpi-check', async (req, res) => {
+  try {
+    res.json(await kpiCheck({ force: req.query.refresh === '1' }));
+  } catch (error) {
+    res.status(502).json({ error: error.message });
   }
 });
 

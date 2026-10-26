@@ -47,7 +47,7 @@ async function accessToken() {
     signal: AbortSignal.timeout(30_000)
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.access_token) throw new Error(data.error || 'Google sign-in failed');
+  if (!response.ok || !data.access_token) throw new Error(data.error ? `${data.error}${data.error_description ? ` (${data.error_description})` : ''}` : 'Google sign-in failed');
   tokenCache = { value: data.access_token, expires: Date.now() + data.expires_in * 1000 };
   return tokenCache.value;
 }
