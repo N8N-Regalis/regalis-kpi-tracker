@@ -2232,7 +2232,7 @@ function vAdmin(){
   const live=KPIS.filter(k=>k.status==='active');
   const paused=KPIS.filter(k=>k.status!=='active');
   const kpiRow=k=>{
-    const on=PEOPLE.filter(p=>p.kpi===k.id&&p.active!==false&&!p.removed);
+    const on=kpiHolders(k.id);
     const sc={active:'',hold:'w',archived:''}[k.status];
     return `<tr${k.status!=='active'?' style="opacity:.62"':''}>
       <td><b>${k.n}</b>${k.derived?` <span class="tag a">Automatic</span>`:''}
@@ -2348,7 +2348,7 @@ function vAdmin(){
 /* ---- KPI editor (opens in the side drawer) ---- */
 function openKpiEditor(id){
   const k=kById(id);if(!k)return;
-  const on=PEOPLE.filter(p=>p.kpi===id&&p.active!==false&&!p.removed);
+  const on=kpiHolders(id);
   const SOURCES=['Bitrix','Spreadsheet','Notion'];
   document.getElementById('dw').innerHTML=`
    <div class="dwh">
@@ -2453,7 +2453,7 @@ function saveKpi(id){
 function setKpiStatus(id,st){
   const k=kById(id);if(!k)return;
   k.status=st;hydrate();
-  const n=PEOPLE.filter(p=>p.kpi===id&&p.active!==false&&!p.removed).length;
+  const n=kpiHolders(id).length;
   renderTop();render();
   toast(st==='active'?`${k.n} is live again — ${n} ${n===1?'person is':'people are'} being scored on it`
        :`${k.n} is now ${KSTAT[st].l.toLowerCase()} — ${n} ${n===1?'person':'people'} no longer scored`,
@@ -2595,6 +2595,20 @@ function vLiveAttention(){
     <div class="ps">Contractors whose latest full-period KPI result is Problem or Needs Attention, worst first.${slowStillLoading()?' Some KPIs are still loading, so this list may change.':''}</div></div>
     <div class="sec">${filterBar()}</div>
     <div class="sec">${flagged.length?`<div class="sh"><span class="st">${flagged.length} ${flagged.length===1?'contractor':'contractors'}</span></div><div class="card">${flagged.map(liveScoreRow).join('')}</div>`:liveNoData('No contractor is currently Problem or Needs Attention.')}</div></div>`;
+}
+/* who holds a KPI: demo people are linked by KPI id; live people (from Bitrix) are matched by job title, and the Deal Ops sheet people by the sheet they are logged on */
+const roleKey=t=>String(t||'').toLowerCase().replace(/operations/g,'ops').replace(/assistant/g,'asst').replace(/execution|executive/g,'exec').replace(/administrator/g,'admin').replace(/\b(deal|team)\b/g,'').replace(/[^a-z&]/g,'');
+function kpiHolders(id){
+  const k=kById(id);
+  const live=p=>p.active!==false&&!p.removed;
+  return PEOPLE.filter(p=>{
+    if(!live(p))return false;
+    if(p.kpi===id)return true;
+    if(id==='esc_response')return DEALOPS_SHEET[p.bitrixId]==='Jessa';
+    if(id==='loi_completion')return Boolean(DEALOPS_SHEET[p.bitrixId])&&DEALOPS_SHEET[p.bitrixId]!=='Jessa';
+    if(id==='daily_tasks')return roleKey(p.bitrixTitle)==='opsassociate';
+    return Boolean(k&&p.bitrixTitle&&roleKey(p.bitrixTitle)===roleKey(k.role));
+  });
 }
 /* ---- Early Warnings: trends in each person's completed weeks and months (the same history the Board shows) ---- */
 const WARN_RANK={exceptional:3,ontrack:2,attention:1,problem:0};
