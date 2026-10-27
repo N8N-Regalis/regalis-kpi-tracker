@@ -2901,6 +2901,14 @@ function vLiveReports(){
         <div class="stat"><span class="n">${bitrix.employees==null?'No Data':PEOPLE.length}</span><span class="l">Active contractors</span></div></div></div>
   </div>`;
 }
+/* System Status row for the OOO Tracker sheet, which supplies the days people are on leave */
+function leaveRow(){
+  const L=DATA.leave,d=L&&L.data,name='OOO Tracker (Google Sheets)';
+  if(d)return {name,ok:true,detail:'Connected to OOO Tracker'};
+  if(L&&L.loading)return {name,ok:false,detail:'Reading the OOO Tracker…'};
+  const err=L&&L.error;
+  return {name,ok:false,detail:/not configured/i.test(err||'')?'Not set up: add GOOGLE_OOO_SHEET_ID to the server. Until then nobody is shown on leave.':liveEscape(err||'Not loaded yet')};
+}
 function vLiveStatus(){
   const bitrix=DATA.bitrix;
   const rows=[
@@ -2909,7 +2917,8 @@ function vLiveStatus(){
     {name:'Bitrix contractors',ok:bitrix.employees!=null,detail:bitrix.employees==null?'No data retrieved':`${bitrix.employees} active contractors retrieved`},
     {name:'KPI scoring',ok:true,detail:'Official scores on every page except Pipeline Health and KPI Check'},
     {name:'Google Sheets',ok:DATA.sheets.connected,detail:DATA.sheets.connected?`Connected to ${liveEscape(DATA.sheets.file||'file')} (read-only)`:liveEscape(DATA.sheets.error||'Not connected')},
-    {name:'Notion',ok:DATA.notion.connected,detail:DATA.notion.connected?`Connected to ${liveEscape(DATA.notion.workspace||'workspace')} (read-only)`:liveEscape(DATA.notion.error||'Not connected')}
+    {name:'Notion',ok:DATA.notion.connected,detail:DATA.notion.connected?`Connected to ${liveEscape(DATA.notion.workspace||'workspace')} (read-only)`:liveEscape(DATA.notion.error||'Not connected')},
+    leaveRow()
   ];
   return `<div class="page"><div class="ph"><h1 class="pt">System Status</h1>
     <div class="ps">Bitrix records are read through the backend. KPI calculations remain disabled until their definitions are verified.</div></div>
