@@ -2464,41 +2464,54 @@ function setKpiStatus(id,st){
 
 /* ===================== 11. GUIDE / SOP ===================== */
 const SOP_MGMT=[
- {t:'Start on Overview every morning',d:'The five numbers at the top are the whole business in one line. Click any of them to see exactly who is behind that number. If <b>Problems</b> is 0 and no team card says PROBLEM, you are done — close the tab.'},
- {t:'Open Needs Attention if anything is red or amber',d:'Every row names the person, their job title, the KPI, what the target is, and how long they have been missing it. Read the sentence after the KPI name — it tells you whether it is a volume problem, a quality problem or a workload problem.'},
- {t:'Tell the person\u2019s team lead, not the person',d:'This tracker is read-only and nobody outside management can see it. There is no button to assign or resolve anything on purpose. You pass the flag down through your normal line of management.'},
- {t:'Check Early Warnings once a week',d:'These are people and teams that are still on target but heading the wrong way. Acting here is cheaper than acting in Needs Attention. Each card ends with a suggested next step.'},
- {t:'Use KPI Bonus at month end',d:'Pick the month, then look at the <b>Run</b> column. A run of 3 or more means sustained performance rather than one lucky month — those rows are highlighted and listed as priority bonus candidates.'},
- {t:'Before a raise or promotion conversation, export the person\u2019s record',d:'Teams & People → search the name → open them → <b>Export this person\u2019s full record</b>. You get seven months of history, their consistency score and a plain verdict. It covers KPI data only — behaviour, attitude and client feedback are still your judgement.'},
- {t:'Use the Board when you manage a lot of people in one role',d:'Teams & People → Board → pick the job title. The summary table ranks everyone in that role; the grid below shows each client day by day so you can see whether a miss is spread out or concentrated on one account.'},
- {t:'Send the Company Report to partners',d:'Company Report → Download as PDF. It is already written in full sentences, covers every team and every flagged person, and needs no editing.'},
- {t:'If a number looks wrong, check two things',d:'First System Status — if a source is behind, the number is marked not scored rather than shown stale. Second, click the KPI name anywhere in the tracker to open the Bitrix report it was calculated from and check the records yourself.'},
- {t:'Refresh before a meeting',d:'The <b>Updated</b> button at the top right forces a fresh read from Bitrix. The time next to it is when the data on screen was last pulled.'}
+ {t:'Start on Overview',d:'The five numbers at the top are the whole company in one line: <b>Problems</b>, <b>Need attention</b>, <b>On target</b>, <b>Exceptional</b> and <b>Not scored</b>. Click any number to open the list of people behind it. Below them, each team has a card rated by its worst performer, and <b>Deal with these first</b> shows who needs action. If Problems and Need attention are both 0, you are done.'},
+ {t:'Choose the period you are looking at',d:'The <b>Showing</b> button at the top sets the counting window: a quarter or a full year. Counting started on 1 October 2026, so nothing earlier is scored. When you change it, every page is read again, and the first load of a new window can take a minute or two. A button that looks greyed out is not used by the page you are on. Hover over it to see why.'},
+ {t:'Open Needs Attention when anything is red or amber',d:'It lists everyone whose latest finished week or month is <b>Problem</b> or <b>Needs Attention</b>, worst first. Each row names the person, their job title and team, and each KPI with its result. Use the Team and Person filters to narrow the list, then click a name to see why.'},
+ {t:'Click a name to open the person’s panel',d:'Wherever you see a name, click it. The panel shows their overall badge (when a person has several KPIs, the lowest result sets the badge), a table of every KPI they are scored on, and a card for each KPI with the weeks or days behind the result. Links on those cards open the Bitrix records, so you can check the numbers yourself.'},
+ {t:'Check Early Warnings once a week',d:'These are people drifting before they reach Problem. <b>Stuck below target</b> means 2 or more finished periods in a row below target (High at 4 weeks or 3 months). <b>Just slipped</b> means On Target or better last period and below target in the latest one. The small squares are the last six finished periods. A warning needs at least two finished periods, so there are few early in a window.'},
+ {t:'Use KPI Bonus at month end',d:'Pick the month at the top. A month is only rated after it ends, and it is rated by the lowest result among its finished weeks or months, so a dark square means every counted period was Exceptional. The <b>Run</b> column counts months in a row, and 3 or more marks a priority bonus candidate. <b>Export</b> downloads the table.'},
+ {t:'Find anyone in Teams & People',d:'The <b>List</b> view shows every active contractor from Bitrix with their latest result. Search by name or job title, filter by team, job title or person, sort the list, or pick dates to see each person’s result for that stretch. <b>Export list</b> downloads what you see.'},
+ {t:'Use the Board when you manage many people in one role',d:'Teams & People → <b>Board</b> → pick a job title. The table ranks everyone in that role with their hit rate. Click a row to see that person day by day: <b>✓</b> met, <b>✕</b> missed, a dot means nothing to count that day, and <b>OOO</b> means approved leave, which is not scored. Ranges longer than 24 working days show one square per week. The Dates button changes the range.'},
+ {t:'Read Pipeline Health when deals seem slow',d:'It shows how many deals moved into each step of the pipeline between the dates you pick, and what share of the deals in the step above got that far. A banner names the step holding things up when more deals arrive each day than leave it. The waiting-time table and the “in it now” counts always show today, whatever dates you pick.'},
+ {t:'Send the Company Report to partners',d:'Company Report → <b>Print report</b>, then choose Save as PDF. It summarises the whole company, each team, who needs action now, who is doing well, and the data gaps that limit the scores. <b>Export contractors</b> gives a spreadsheet.'},
+ {t:'If a number looks wrong, check three things',d:'First <b>System Status</b>: if a source is not connected, the numbers that depend on it show No Data rather than an old value. Second, open the person’s panel and read the card for that KPI, which lists the deals, tasks or rows that were counted. Third, the <b>Data gaps</b> list at the bottom of the Company Report names fields missing in Bitrix that hold scores back.'},
+ {t:'Refresh before a meeting',d:'The button at the top right reads Bitrix again and shows when the data was last pulled. Some KPIs take about a minute to load. A banner says so, and the numbers can change until it disappears.'}
 ];
 const SOP_ADMIN=[
- {t:'You need admin rights to change anything',d:'Settings & Access is locked by default. Everything else in the tracker is read-only for everybody, including you. Nothing in this tool writes back to Bitrix.'},
- {t:'Give someone access',d:'Settings & Access → <b>Add a person</b>. Choose <b>Own team only</b> for a team lead — they will see only their own people and no company-wide totals. Choose <b>Full view, no admin</b> for a manager who should see everything but change nothing.'},
- {t:'Confirm the targets that are still unconfirmed',d:'Any KPI marked <b>Needs your confirmation</b> has no number in your KPI document. The tracker has suggested one from the team size but will not score anybody on it until you press Confirm. Until then those people show as Not scored, never as failing.'},
- {t:'Understand automatic targets',d:'Rows marked <b>Automatic — team size × N</b> have no fixed number. The target is recalculated from however many people are in that role today. Hire someone and the target rises by itself the moment they finish ramping.'},
- {t:'Edit a KPI',d:'Settings & Access → Edit on any row. You can change the target, the band, the cadence and which role it applies to. Changes are versioned, so last month\u2019s numbers keep being judged against last month\u2019s target.'},
- {t:'Report a broken KPI',d:'Bottom of Settings & Access. Use this when the tracker itself is wrong — a number that cannot be right, a KPI measuring the wrong thing, a person attached to the wrong role. This flags the KPI as under review so management stops acting on it.'},
- {t:'Watch System Status daily',d:'Six sources feed this tracker. If one falls behind its limit, every KPI it feeds is marked not scored instead of showing an old number. Fix the connection and the KPIs come back automatically.'},
- {t:'Review KPI Check every quarter',d:'This page rates each KPI on whether it actually predicts business outcomes. Anything rated <b>Weak</b> is still fine as an internal service measure but should not be used to judge company performance or to decide a bonus.'},
- {t:'New hires are protected for 45 days',d:'Anyone inside their ramp window shows as Not scored, not as failing. The ramp length is configurable per role and they are excluded from team averages until it ends.'},
- {t:'Adding a new source later changes nothing you built',d:'Each source is a connector. The KPI definitions do not know or care where the data came from, so connecting a new system switches its KPIs from manual to automatic without rebuilding anything.'}
+ {t:'Settings & Access is for admins only',d:'It appears in the menu only when you sign in with the admin password. Everything else in the tracker is read-only, and nothing in this tracker writes back to Bitrix.'},
+ {t:'Check who is on the roster',d:'<b>People on the roster</b> lists every contractor by team. You can deactivate someone who has left so they stop counting in team ratings and totals, and reactivate them later. People come from Bitrix, so a wrong name, job title or team is fixed in Bitrix itself.'},
+ {t:'Review what each KPI measures',d:'<b>KPI settings</b> lists every KPI with the role it applies to, how often it is measured, its source, its target and how many people it covers. Click <b>Edit</b> to see its state, what it measures, its target, bands, tracking and who it affects.'},
+ {t:'Put a KPI on hold or bring it back',d:'<b>Put on hold</b> stops scoring everyone on that KPI, and they show No Data rather than failing. <b>Reactivate</b> brings it back. The page tells you how many people are affected.'},
+ {t:'Check that your changes held',d:'Edits here change what this tracker shows, never Bitrix. After you save a change, reload the page and confirm it is still there before you rely on it.'},
+ {t:'Watch System Status',d:'It lists the sources behind the numbers: Bitrix deals, stages and contractors, Google Sheets and Notion. If one is not connected, fix the connection and refresh.'},
+ {t:'Keep the Bitrix fields filled in',d:'Many scores depend on fields people fill in Bitrix, such as Client Deal Volume, Filled Date or Closing Analyst. The <b>Data gaps</b> list in the Company Report shows which are missing. Fixing them in Bitrix improves the scores at the next refresh.'},
+ {t:'Leave comes from the OOO Tracker sheet',d:'Approved leave in the OOO Tracker is not scored and shows as OOO. A leave marked unexcused or rejected still counts. If someone is on leave but does not show as OOO, check that the nickname and full name on the CONTRACTOR tab match their name in Bitrix.'},
+ {t:'Review KPI Check each quarter',d:'KPI Check compares each KPI with business results over the last finished weeks. A KPI with a weak signal is fine as an internal measure, but it should not be the only basis for judging company performance or a bonus.'}
+];
+const GUIDE_PAGES=[
+ ['overview','Overview','The whole company on one screen: five counts and a card for each team.','Every morning'],
+ ['attention','Needs Attention','People at Problem or Needs Attention, worst first.','When Overview shows anything red or amber'],
+ ['warnings','Early Warnings','People drifting below target, before they reach Problem.','Once a week'],
+ ['bonus','KPI Bonus','Who has been Exceptional, month by month, and for how many months in a row.','At month end'],
+ ['people','Teams & People','Everyone as a list, or the Board to compare a job title day by day.','To find a person or compare a role'],
+ ['pipeline','Pipeline Health','Where deals sit in the pipeline and where they stall.','When deals feel slow'],
+ ['kpicheck','KPI Check','Whether each KPI moves together with business results.','Quarterly, when reviewing the KPIs'],
+ ['reports','Company Report','A written summary to print or export.','Before partner meetings'],
+ ['status','System Status','Whether Bitrix, Google Sheets and Notion are connected.','When a number looks wrong']
 ];
 function vGuide(){
+  if(S.guideTab==='admin'&&!S.admin)S.guideTab='mgmt'; /* the admin steps are for the admin password only */
   const list=S.guideTab==='mgmt'?SOP_MGMT:SOP_ADMIN;
   return `<div class="page">
     <div class="ph">
       <h1 class="pt">${ic('book',21,2)} Guide</h1>
-      <div class="ps">How to use this tracker, in order. Two short procedures — one for management, one for whoever administers the tool.</div>
+      <div class="ps">How to find your way around the KPI Tracker, step by step.</div>
     </div>
 
     <div class="sec" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <div class="seg2">
-        <button class="${S.guideTab==='mgmt'?'on':''}" data-guide="mgmt">${ic('users',14,2)} For management</button>
-        <button class="${S.guideTab==='admin'?'on':''}" data-guide="admin">${ic('cog',14,2)} For the admin</button>
+        <button class="${S.guideTab==='mgmt'?'on':''}" data-guide="mgmt">${ic('users',14,2)} Using the tracker</button>
+        ${S.admin?`<button class="${S.guideTab==='admin'?'on':''}" data-guide="admin">${ic('cog',14,2)} For the admin</button>`:''}
       </div>
       <div style="flex:1"></div>
       <button class="btn sm" data-exp="pdf">${ic('pdf',14,1.9)} Print this guide</button>
@@ -2507,8 +2520,8 @@ function vGuide(){
     <div class="sec">
       <div class="note" style="margin-bottom:14px">${ic('info',16,2)}<div>
         ${S.guideTab==='mgmt'
-          ? '<b>The short version.</b> Open Overview. If nothing is red or amber, you are finished. If something is, click the number to see who it is, read the one-line reason, and tell their team lead.'
-          : '<b>The short version.</b> Everyone sees the same read-only tracker. Your job is to keep the sources connected, confirm the targets that have no number yet, and keep the KPI list honest.'}
+          ? '<b>The short version.</b> Open Overview. If Problems and Need attention are both 0, you are finished. If not, click the number to see who it is, click their name to see why, and follow up with their team lead.'
+          : '<b>The short version.</b> Everyone sees the same read-only tracker. Your job is to keep the sources connected, keep the Bitrix fields filled in, and keep the KPI list accurate.'}
       </div></div>
       <div class="card cp">
         <ol class="sop">
@@ -2517,19 +2530,34 @@ function vGuide(){
       </div>
     </div>
 
+    ${S.guideTab==='mgmt'?`<div class="sec">
+      <div class="sh"><span class="st">Where to find what</span><span class="sn">Click a page name to open it</span></div>
+      <div class="card">${sheetTable(['Page','What it shows','Use it'],GUIDE_PAGES.map(p=>[`<button class="slink" data-nav="${p[0]}">${p[1]}</button>`,p[2],p[3]]))}</div>
+    </div>`:''}
+
     <div class="sec">
-      <div class="sh"><span class="st">The five words this tracker uses</span></div>
+      <div class="sh"><span class="st">The five results</span></div>
       <div class="card cp">
         <div class="lgd" style="margin-top:0;gap:11px 22px">
-          <span class="it">${bdg('exceptional')} <span>Beat their target. Bonus candidate.</span></span>
+          <span class="it">${bdg('exceptional')} <span>Beat their target. A bonus candidate if it holds month after month.</span></span>
           <span class="it">${bdg('ontrack')} <span>Met their target. Nothing to do.</span></span>
           <span class="it">${bdg('attention')} <span>Below target recently. Worth a conversation.</span></span>
-          <span class="it">${bdg('problem')} <span>Below target long enough to break your KPI rule. Act now.</span></span>
-          <span class="it">${bdg('nodata')} <span>Ramping, or the target is not confirmed. Never counted as a failure.</span></span>
+          <span class="it">${bdg('problem')} <span>Below target long enough to break the rule for that KPI. Act now.</span></span>
+          <span class="it">${bdg('nodata')} <span>Not scored yet: the period is still running, nothing was recorded, or the data is missing. Never counted as a failure.</span></span>
         </div>
-        <div style="font-size:12.5px;color:var(--tx3);margin-top:14px;padding-top:13px;border-top:1px solid var(--line);line-height:1.6">
-          Colour is only ever used for a signal. A quiet, nearly colourless screen means the business is healthy — that is the design, not a loading state.
-        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sh"><span class="st">Good to know</span></div>
+      <div class="card cp">
+        <ul style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.75;color:var(--tx2)">
+          <li>A person’s result is for their latest <b>finished</b> week or month. A period still running shows <b>In progress</b> and is not scored until it ends.</li>
+          <li>A team is rated by its worst performer, so one Problem makes the whole team show Problem.</li>
+          <li>Days a person is on approved leave in the OOO Tracker are not scored. They show as <b>OOO</b> on the Board.</li>
+          <li>Hover over the small <b>i</b> marks and over coloured squares for a plain explanation.</li>
+          <li>The tracker only reads Bitrix. Nothing you click here changes anything in Bitrix.</li>
+        </ul>
       </div>
     </div>
   </div>`;
@@ -2894,13 +2922,7 @@ function vLiveStatus(){
     </tbody></table></div></div>
   </div>`;
 }
-function vLiveGuide(){
-  return `<div class="page"><div class="ph"><h1 class="pt">${ic('book',21,2)} Guide</h1><div class="ps">Connected data and scoring boundaries.</div></div>
-    <div class="sec"><div class="card cp"><h3>Connected data</h3><p>Refresh retrieves CRM deals, stages, and active contractors through the backend.</p>
-      <h3>KPI scores</h3><p>Each contractor's score is the result of their KPI for the latest full period, using the rules in the Score Card Mapping document. The Overview, Needs Attention, Early Warnings, Teams & People (list and board), KPI Bonus and Company Report all use those scores. A team is rated by its worst performer. Counting starts on 1 October 2026.</p>
-      <h3>Privacy</h3><p>The webhook stays on the backend. The integration is read-only and the local API listens only on this computer.</p></div></div>
-  </div>`;
-}
+function vLiveGuide(){return vGuide();}
 /* ---- Deal Operations KPIs from the tracker sheet (Score Card Mapping doc, rows 1 and 2) ----
    Rates are computed here from the sheet's own rows. Zones: >=90% Exceptional, 80-89% Target, <80% Below target.
    Status uses the document's 2-consecutive-week rule for Below target. */
