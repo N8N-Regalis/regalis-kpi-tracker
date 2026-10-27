@@ -14,6 +14,7 @@ const { dealsPresented } = require('./integrations/dealsPresented');
 const { dealQuality } = require('./integrations/dealQuality');
 const { valuationOutput } = require('./integrations/valuationOutput');
 const { holidayList } = require('./integrations/holidays');
+const { leave } = require('./integrations/leave');
 const { teamHealth } = require('./integrations/teamHealth');
 const { kpiCheck } = require('./integrations/kpiCheck');
 const { pipelineHealth } = require('./integrations/pipelineHealth');
@@ -302,6 +303,14 @@ app.get('/api/kpi/deals-presented', async (req, res) => {
     }));
   } catch (error) {
     res.status(error.message.includes('must') || error.message.includes('limited') ? 400 : 502).json({ error: error.message });
+  }
+});
+
+app.get('/api/leave', async (req, res) => {
+  try {
+    res.json(await leave({ force: req.query.refresh === '1' }));
+  } catch (error) {
+    res.status(error.message.includes('not configured') ? 503 : 502).json({ error: error.message });
   }
 });
 

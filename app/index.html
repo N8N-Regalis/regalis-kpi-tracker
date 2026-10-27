@@ -384,6 +384,7 @@ table.bgrid{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5p
 .bcell.hit{background:var(--good-bg);color:var(--good);border-color:var(--good-ln)}
 .bcell.miss{background:var(--bad-bg);color:var(--bad);border-color:var(--bad-ln)}
 .bcell.na{color:var(--line2)}
+.bcell.leave{background:var(--line);color:var(--tx2);border-color:var(--line2);font-size:8px;letter-spacing:-.02em;width:auto;min-width:25px;padding:0 3px}
 .bsum{font-weight:650;font-variant-numeric:tabular-nums}
 .bsum.lo{color:var(--bad)} .bsum.mid{color:var(--warn)} .bsum.hi{color:var(--good)}
 .rolerow{cursor:pointer}
@@ -1089,6 +1090,7 @@ const DATA={mode:'connecting',generatedAt:null,error:null,bitrix:{connected:fals
   onboarding:{data:null,error:null,loading:false},
   timeToFill:{data:null,error:null,loading:false},
   audits:{data:null,error:null,loading:false},
+  leave:{data:null,error:null,loading:false},
   kpiCheck:{data:null,error:null,loading:false},
   pipelineHealth:{data:null,error:null,loading:false}};
 let COUNT_TO=null; /* end of the chosen window; null means today */
@@ -3174,12 +3176,13 @@ function dealsPresentedCard(person){
   const weekly=a.clients.filter(c=>c.volume==='Normal'),monthly=a.clients.filter(c=>c.volume!=='Normal');
   const need={Low:1,Medium:2};
   const zero=i=>weekly.filter(c=>c.weekly[i]===0).length;
-  const zoneOf=i=>!weekly.length?'—':zero(i)>0?'Below target':weekly.every(c=>c.weekly[i]>=2)?'Exceptional':'Target';
+  const zoneOf=i=>!weekly.length?'—':weekAway(a.bitrixId,weeks[i])?'On leave':zero(i)>0?'Below target':weekly.every(c=>c.weekly[i]>=2)?'Exceptional':'Target';
   const monthNow=iso(TODAY).slice(0,7),monthPrev=d.months.filter(m=>m<monthNow).pop();
   const weeklyZone=!weekly.length?null:last==null?(weeks.some(w=>w.inProgress)?'In progress':'No Data'):zoneOf(last);
   const monthlyZone=!monthly.length?null:!monthPrev?'In progress':monthly.every(c=>(c.monthly[monthPrev]||0)>=need[c.volume])?'Target':'Below target';
   const parts=[weeklyZone,monthlyZone].filter(Boolean);
-  const status=!parts.length?'No Data':parts.includes('Below target')?'Below target':parts.includes('In progress')?'In progress':parts.includes('No Data')?'No Data':parts.includes('Target')?'Target':'Exceptional';
+  const scored=parts.filter(x=>x!=='On leave'); /* a week spent entirely on approved leave is not scored */
+  const status=!parts.length?'No Data':!scored.length?'On leave':scored.includes('Below target')?'Below target':scored.includes('In progress')?'In progress':scored.includes('No Data')?'No Data':scored.includes('Target')?'Target':'Exceptional';
   noteScore('Deals Presented per Client per Week',status);
   if(weekly.length)noteSeries('Deals Presented per Client per Week','week',weeks.map((w,i)=>({label:loiShortDay(w.start),iso:w.start,text:w.inProgress?'In progress':zoneOf(i)})));
   const wk=w=>liveEscape(loiShortDay(w.start))+(w.inProgress?'*':'');
@@ -3212,8 +3215,10 @@ function kpiLoadBanner(){
 }
 function kpiFailBanner(){
   const f=kpiFailures();
-  if(!f.length)return '';
-  return `<div class="sec"><div class="note w">${ic('warn',17,2)}<div><b>${f.length} KPI source${f.length===1?'':'s'} could not be read from Bitrix:</b> ${f.map(k=>liveEscape(KPI_LABELS[k])).join(', ')}. People who depend on ${f.length===1?'it':'them'} show No Data until it loads. This is usually a short Bitrix timeout.
+  const lv=DATA.leave&&DATA.leave.error&&!DATA.leave.loading&&!/not configured/i.test(DATA.leave.error)
+    ?`<div class="sec"><div class="note w">${ic('warn',17,2)}<div><b>The OOO Tracker could not be read.</b> Until it loads, days on leave are scored like normal working days. ${liveEscape(DATA.leave.error)}</div></div></div>`:'';
+  if(!f.length)return lv;
+  return lv+`<div class="sec"><div class="note w">${ic('warn',17,2)}<div><b>${f.length} KPI source${f.length===1?'':'s'} could not be read from Bitrix:</b> ${f.map(k=>liveEscape(KPI_LABELS[k])).join(', ')}. People who depend on ${f.length===1?'it':'them'} show No Data until it loads. This is usually a short Bitrix timeout.
     <button class="btn sm" id="kpiRetry" style="margin-left:8px">Retry now</button></div></div></div>`;
 }
 async function retryKpis(){
@@ -3258,7 +3263,7 @@ function winQs(force){
   if(WIN.explicit){parts.push('qfrom='+COUNT_FROM);parts.push('qto='+(COUNT_TO||''));}
   return parts.length?'?'+parts.join('&'):'';
 }
-const SLOW_KEYS=['dealsPresented','dealQuality','valuationOutput','teamHealth','closing','conversion','teamLoiClosing','onboarding','timeToFill','audits'];
+const SLOW_KEYS=['dealsPresented','dealQuality','valuationOutput','teamHealth','closing','conversion','teamLoiClosing','onboarding','timeToFill','audits','leave'];
 /* choose a quarter or year: every score is read again for that window */
 async function setWindow(label){
   if(!SERVER_WINDOWS){toast('The server is an older copy. Restart it to use the quarter picker.','warn');return;}
@@ -3299,8 +3304,11 @@ async function loadSlowKpis(force,seqArg){
   DATA.closing={data:DATA.closing.data,error:null,loading:true};
   DATA.conversion={data:DATA.conversion.data,error:null,loading:true};
   DATA.teamLoiClosing={data:DATA.teamLoiClosing.data,error:null,loading:true};
-  ['onboarding','timeToFill','audits'].forEach(k=>{DATA[k]={data:DATA[k].data,error:null,loading:true};});
+  ['onboarding','timeToFill','audits','leave'].forEach(k=>{DATA[k]={data:DATA[k].data,error:null,loading:true};});
   await Promise.all([
+    /* the OOO Tracker is quick and optional: one try, and a failure only means nobody is shown on leave */
+    fetch('/api/leave'+(force?'?refresh=1':''),{cache:'no-store'}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||'Request failed');return d;})
+      .then(d=>{DATA.leave={data:d,error:null,loading:false};}).catch(e=>{DATA.leave={data:null,error:e.message,loading:false};}),
     get('/api/kpi/deals-presented'+q).then(d=>{DATA.dealsPresented={data:d,error:null,loading:false};}).catch(e=>{DATA.dealsPresented={data:null,error:e.message,loading:false};}),
     get('/api/kpi/deal-quality'+q).then(d=>{DATA.dealQuality={data:d,error:null,loading:false};}).catch(e=>{DATA.dealQuality={data:null,error:e.message,loading:false};}),
     get('/api/kpi/valuation-output'+q).then(d=>{DATA.valuationOutput={data:d,error:null,loading:false};}).catch(e=>{DATA.valuationOutput={data:null,error:e.message,loading:false};}),
@@ -3379,26 +3387,32 @@ function valuationOutputCard(person){
   const blocks=found.map(({k,g,p})=>{
     const zone=n=>n>=g.exceptional?'Exceptional':n>=g.floor?'Target':'Below target';
     const result=x=>x.state==='met'?'Met':x.state==='gap'?'KPI gap':'No work arrived';
-    const full=p.daily.filter(x=>x.day<today),last=full[full.length-1];
-    const pending=p.daily.some(x=>x.day>=today)?'In progress':'No Data';
-    noteScore(g.name,last?zone(last.built):pending);
+    const lv=day=>leaveOn(person.bitrixId,day);
+    const allDaily=p.daily,daily=allDaily.filter(x=>!lv(x.day)); /* days on approved leave are not scored */
+    const full=daily.filter(x=>x.day<today),last=full[full.length-1];
+    const lastAny=allDaily.filter(x=>x.day<today).slice(-1)[0],away=Boolean(lastAny&&lv(lastAny.day));
+    const leaveN=allDaily.length-daily.length;
+    const pending=allDaily.some(x=>x.day>=today)?'In progress':'No Data';
+    noteScore(g.name,away?'On leave':last?zone(last.built):pending);
     const byWeek=new Map();
-    p.daily.forEach(x=>{const w=mondayOfDay(x.day);const e=byWeek.get(w)||{days:0,met:0,gap:0,built:0,high:0,inProg:false};e.days++;e.built+=x.built;if(x.state==='met')e.met++;if(x.state==='gap')e.gap++;if(x.built>=g.exceptional)e.high++;if(x.day>=today)e.inProg=true;byWeek.set(w,e);});
-    noteSeries(g.name,'week',[...byWeek.entries()].map(([w,e])=>({label:loiShortDay(w),iso:w,text:e.inProg?'In progress':!e.days?'No Data':e.built/e.days>=g.exceptional?'Exceptional':e.built/e.days>=g.floor?'Target':'Below target'})));
-    const weekRows=[...byWeek.entries()].map(([w,e])=>[liveEscape(loiShortDay(w))+(e.inProg?'*':''),e.days,e.met,e.gap,e.days?Math.round(e.built/e.days*10)/10:'—',e.built,
+    allDaily.forEach(x=>{const w=mondayOfDay(x.day);const e=byWeek.get(w)||{days:0,leave:0,met:0,gap:0,built:0,high:0,inProg:false};if(x.day>=today)e.inProg=true;
+      if(lv(x.day)){e.leave++;byWeek.set(w,e);return;}
+      e.days++;e.built+=x.built;if(x.state==='met')e.met++;if(x.state==='gap')e.gap++;if(x.built>=g.exceptional)e.high++;byWeek.set(w,e);});
+    noteSeries(g.name,'week',[...byWeek.entries()].map(([w,e])=>({label:loiShortDay(w),iso:w,text:e.inProg?'In progress':!e.days?(e.leave?'On leave':'No Data'):e.built/e.days>=g.exceptional?'Exceptional':e.built/e.days>=g.floor?'Target':'Below target'})));
+    const weekRows=[...byWeek.entries()].map(([w,e])=>[liveEscape(loiShortDay(w))+(e.inProg?'*':''),e.days+(e.leave?` (${e.leave} on leave)`:''),e.met,e.gap,e.days?Math.round(e.built/e.days*10)/10:'—',e.built,
       k==='videos'?(e.high>=4?'Yes (4+ days at '+g.exceptional+'+)':'No'):'—']);
     const head=['Week of','Working days','Days at or above '+g.goal,'KPI gap days','Average per day','Total']+'';
-    const total=p.daily.reduce((s,x)=>s+x.built,0);
+    const total=daily.reduce((s,x)=>s+x.built,0);
     const intro={reviews:'Deals moved out of Valuation Model For Review to Video Presentation or Axed. Credited to the Valuation Team Lead role. Exceptional: 80 or more a day · Target: 60 or more · Below target: under 60.',
       models:'Deals moved out of Valuation Modeling to Valuation Model For Review or Axed, credited to the Financial Analyst the Valuation Modeling activity is assigned to. Deals sent back to the M&A Associate or to Action Required are not counted'+(p.notCounted!=null?` (${p.notCounted} in this range)`:'')+'. Exceptional: 30 or more a day · Target: 20 or more · Below target: under 20.',
       videos:'"Video Presentation" activities marked done, credited to the Proposal Specialist they are assigned to. Exceptional: 21 or more a day for 4 or more days in a week · Target: 15 to 20 · Below target: under 15.'}[k];
     return `<div style="margin-top:14px;font-size:13.5px;font-weight:620">${liveEscape(g.name)}</div>
-      <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">${intro} A day below ${g.goal} is a KPI gap when deals arrived before the 4:00 PM cutoff.</p>
+      <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">${intro} A day below ${g.goal} is a KPI gap when deals arrived before the 4:00 PM cutoff.${leaveN?` ${leaveN} working day${leaveN===1?'':'s'} in this range ${leaveN===1?'is':'are'} on approved leave (OOO Tracker) and not scored.`:''}</p>
       ${sheetTable(['Last full working day','Done','Arrived by 4 PM','Zone','Result','Average per day (range)'],
-        [last?[liveEscape(loiShortDay(last.day)),last.built,last.arrived,zone(last.built),result(last),p.daily.length?Math.round(total/p.daily.length*10)/10:'—']:['—','—','—',pending,'—','—']])}
+        [last?[liveEscape(loiShortDay(last.day)),last.built,last.arrived,away?'On leave now':zone(last.built),result(last),daily.length?Math.round(total/daily.length*10)/10:'—']:['—','—','—',away?'On leave now':pending,'—','—']])}
       ${sheetTable(['Week of','Working days','Days at or above '+g.goal,'KPI gap days','Average per day','Total',k==='videos'?'Sustained Exceptional week':'—'],weekRows)}
       <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">By day</summary>
-        ${sheetTable(['Day','Done','Arrived by 4 PM','Zone','Result'],p.daily.slice().reverse().map(x=>[liveEscape(loiShortDay(x.day))+(x.day>=today?' (in progress)':''),x.built,x.arrived,x.day>=today?'—':zone(x.built),x.day>=today?'—':result(x)]))}</details>`;
+        ${sheetTable(['Day','Done','Arrived by 4 PM','Zone','Result'],allDaily.slice().reverse().map(x=>lv(x.day)?[liveEscape(loiShortDay(x.day)),'—','—','On leave',liveEscape(lv(x.day))]:[liveEscape(loiShortDay(x.day))+(x.day>=today?' (in progress)':''),x.built,x.arrived,x.day>=today?'—':zone(x.built),x.day>=today?'—':result(x)]))}</details>`;
   }).join('');
   return wrap(blocks);
 }
@@ -3580,7 +3594,7 @@ function scoreCounts(list){
   list.forEach(p=>{c[p.s||'nodata']++;});
   return c;
 }
-function slowStillLoading(){return ['dealsPresented','dealQuality','valuationOutput','teamHealth','closing','conversion','teamLoiClosing','onboarding','timeToFill','audits'].some(k=>DATA[k]&&DATA[k].loading);}
+function slowStillLoading(){return ['dealsPresented','dealQuality','valuationOutput','teamHealth','closing','conversion','teamLoiClosing','onboarding','timeToFill','audits','leave'].some(k=>DATA[k]&&DATA[k].loading);}
 /* ---- Board: people in one job title, one square per week or month ---- */
 /* Board order: worst to excellent (default), excellent to worst, or by name. Ties are broken by hit rate, then name. */
 const BOARD_SORTS={worst:'Worst to excellent',best:'Excellent to worst',name:'Name A–Z'};
@@ -3667,6 +3681,13 @@ function boardRange(prX,fromX,toX){
 function dayMap(list,key){const m=new Map();(list||[]).forEach(x=>m.set(x[key||'day'],x));return m;}
 const sumOf=(arr,f)=>arr.reduce((s,x)=>s+f(x),0);
 const NA=tip=>({s:'na',t:'',tip});
+const LEAVE=tip=>({s:'leave',t:'',tip});
+/* approved leave from the OOO Tracker: the type of leave a person is on that day, or null */
+function leaveOn(bitrixId,day){
+  const l=DATA.leave&&DATA.leave.data&&DATA.leave.data.people;const rows=l&&l[bitrixId];
+  const hit=rows&&rows.find(r=>r.start<=day&&day<=r.end);
+  return hit?hit.type:null;
+}
 
 /* ---- one provider per KPI family; each returns the day-by-day model for a person, or null ---- */
 function provTasks(person,days){
@@ -3698,21 +3719,26 @@ function provValuation(person,days){
     const g=d[key];const p=g&&g.people.find(x=>x.bitrixId===person.bitrixId);if(!p)continue;
     const m=dayMap(p.daily);
     const cells=days.map(day=>{const e=m.get(day);if(!e)return NA('Not a working day with data');
+      const away=leaveOn(person.bitrixId,day);if(away)return LEAVE(`On approved leave (${away}). Not scored.`);
       if(e.state==='met')return {s:'hit',tip:`${e.built} done (goal ${g.goal}) · ${e.arrived} arrived by 4 PM`};
       if(e.state==='gap')return {s:'miss',tip:`${e.built} done, below the goal of ${g.goal} · ${e.arrived} arrived by 4 PM`};
       return NA('No work arrived');});
-    const done=sumOf(days,x=>(m.get(x)||{}).built||0),withData=days.filter(x=>m.get(x)).length;
+    const counted=days.filter(x=>!leaveOn(person.bitrixId,x));
+    const done=sumOf(counted,x=>(m.get(x)||{}).built||0),withData=counted.filter(x=>m.get(x)).length;
     const hit=cells.filter(c=>c.s==='hit').length,miss=cells.filter(c=>c.s==='miss').length;
     return {kpi:g.name,rule:`${g.name}: at least ${g.goal} a day (Exceptional ${g.exceptional}+). A day below the goal only counts as a miss when work had arrived before 4:00 PM ET.`,rowHead:'Measure',rows:[{label:g.name,cells,tot:String(done)}],totHead:'Done',sums:[{h:'Done',v:done},{h:'Average per day',v:withData?Math.round(done/withData*10)/10:'—'}],hit,of:hit+miss};
   }
   return null;
 }
+/* true when every working day of the week is on approved leave, so the week is not scored */
+function weekAway(bitrixId,w){const ds=workdayList(w.start,w.end);return ds.length>0&&ds.every(d=>leaveOn(bitrixId,d));}
 function provDeals(person,days){
   const d=DATA.dealsPresented&&DATA.dealsPresented.data;const a=d&&d.associates.find(x=>x.bitrixId===person.bitrixId);if(!a)return null;
   const rows=a.clients.map(c=>{
     const m=new Map();c.deals.forEach(x=>m.set(x.day,(m.get(x.day)||0)+1));
     const weekOf=day=>d.weeks.findIndex(w=>w.start<=day&&day<=w.end);
     const cells=days.map(day=>{const n=m.get(day)||0;if(n)return {s:'hit',tip:`${n} deal${n>1?'s':''} presented`};
+      const away=leaveOn(person.bitrixId,day);if(away)return LEAVE(`On approved leave (${away}). Not scored.`);
       const wi=weekOf(day);
       if(c.volume==='Normal'&&wi>=0&&!d.weeks[wi].inProgress&&c.weekly[wi]===0)return {s:'miss',tip:'No deal presented for this client in the whole week (the target is 1 a week)'};
       return NA(c.volume==='Normal'?'No deal today, and the week is not over or already has a deal':'No deal today (this client is held to a monthly rule)');});
@@ -3720,7 +3746,7 @@ function provDeals(person,days){
     return {label:c.name,url:c.url,sub:c.volume==='Normal'?(c.volumeSet?'Normal':'Normal (not set)'):c.volume,cells,tot:String(n),n};
   });
   let of=0,hit=0;
-  d.weeks.forEach((w,i)=>{if(w.inProgress||w.end<days[0]||w.start>days[days.length-1])return;a.clients.filter(c=>c.volume==='Normal').forEach(c=>{of++;if(c.weekly[i]>=1)hit++;});});
+  d.weeks.forEach((w,i)=>{if(w.inProgress||w.end<days[0]||w.start>days[days.length-1]||weekAway(person.bitrixId,w))return;a.clients.filter(c=>c.volume==='Normal').forEach(c=>{of++;if(c.weekly[i]>=1)hit++;});});
   return {kpi:'Deals Presented per Client per Week',rule:'Every Normal volume client should have at least 1 deal presented each week (Low: 1 a month, Medium: 2 a month). A green square is a day a deal was presented. A red square is a working day in a finished week where the client had no deal at all. A dot is a day with no deal in a week that is not over or already has one. The hit rate counts client-weeks with at least 1.',rowHead:'Client',missText:'a finished week where this client had no deal presented',naText:'no deal that day, but the week is not a miss',hitText:'a deal was presented that day',rows,totHead:'Deals presented',sums:[{h:'Clients',v:a.clients.length},{h:'Deals presented',v:sumOf(rows,r=>r.n)},{h:'Client-weeks at 0',v:of-hit}],hit,of};
 }
 function provSigned(person,days){
@@ -3846,8 +3872,9 @@ function dayCols(days){
   return [...m.values()];
 }
 function rollDay(cells,idx){
-  const a=idx.map(i=>cells[i]).filter(c=>c.s!=='na');
-  if(!a.length)return {s:'na',tip:'Nothing counted'};
+  const all=idx.map(i=>cells[i]);
+  const a=all.filter(c=>c.s!=='na'&&c.s!=='leave');
+  if(!a.length)return all.some(c=>c.s==='leave')?LEAVE('On approved leave'):{s:'na',tip:'Nothing counted'};
   const h=a.filter(c=>c.s==='hit').length;
   return {s:h/a.length>=.5?'hit':'miss',tip:`${h} of ${a.length} counted days met`};
 }
@@ -3989,14 +4016,15 @@ function liveBoard(){
       <span style="font-weight:620;color:var(--tx2);font-size:12px;letter-spacing:.03em;text-transform:uppercase">How to read this</span>
       <span class="it"><span class="bcell hit">✓</span> <b>Met</b> — ${weekly?'met on most counted days that week':(m.hitText||'met that day')}</span>
       <span class="it"><span class="bcell miss">✕</span> <b>Missed</b> — ${weekly?'missed on most counted days that week':(m.missText||'below the target that day')}</span>
-      <span class="it"><span class="bcell na">·</span> <b>Nothing to count</b> — ${m.naText||'not counted either way'}</span></div>
+      <span class="it"><span class="bcell na">·</span> <b>Nothing to count</b> — ${m.naText||'not counted either way'}</span>
+      ${m.rows.some(r=>r.cells.some(c=>c.s==='leave'))?`<span class="it"><span class="bcell leave">OOO</span> <b>On leave</b> — approved leave in the OOO Tracker, not scored</span>`:''}</div>
       <p style="font-size:12.5px;color:var(--tx3);margin:10px 0 0">${liveEscape(m.rule)}${weekly?' This range is longer than 24 working days, so each square is one week (the date shown is the Monday).':''}</p></div>
     <div class="bwrap"><table class="bgrid"><thead><tr><th class="cl">${liveEscape(m.rowHead)}</th>${cols.map(colHead).join('')}<th class="sm">${liveEscape(m.totHead)}</th></tr></thead><tbody>
       ${m.rows.map(r=>`<tr><td class="cl"><b style="font-weight:600">${r.url?`<a class="srcl" href="${liveEscape(r.url)}" target="_blank" rel="noopener" data-src="1">${liveEscape(r.label)} ${ic('link',11,2.2)}</a>`:liveEscape(r.label)}</b>${r.sub?`<div style="font-size:11px;color:var(--tx3)">${liveEscape(r.sub)}</div>`:''}</td>
         ${cols.map(c=>{const st=cellFor(r,c);const tip=weekly?`${r.label} — week of ${shortIso(c.label)}: ${st.tip}`:`${r.label} — ${longIso(c.label)}: ${st.tip}`;
-          return `<td><span class="bcell ${st.s}" data-tip="${liveEscape(tip)}" data-hdr="${liveEscape(sel.n)}">${st.s==='hit'?'✓':st.s==='miss'?'✕':'·'}</span></td>`;}).join('')}
+          return `<td><span class="bcell ${st.s}" data-tip="${liveEscape(tip)}" data-hdr="${liveEscape(sel.n)}">${st.s==='hit'?'✓':st.s==='miss'?'✕':st.s==='leave'?'OOO':'·'}</span></td>`;}).join('')}
         <td class="sm bsum">${liveEscape(r.tot)}</td></tr>`).join('')}
-      ${m.rows.length>1?`<tr style="border-top:2px solid var(--line2)"><td class="cl" style="font-weight:700">Total</td>${cols.map(c=>{const sts=m.rows.map(r=>cellFor(r,c).s);const n=sts.filter(x=>x==='hit').length,t=sts.filter(x=>x!=='na').length;
+      ${m.rows.length>1?`<tr style="border-top:2px solid var(--line2)"><td class="cl" style="font-weight:700">Total</td>${cols.map(c=>{const sts=m.rows.map(r=>cellFor(r,c).s);const n=sts.filter(x=>x==='hit').length,t=sts.filter(x=>x!=='na'&&x!=='leave').length;
           return `<td><span style="font-size:11px;font-weight:650;color:${t&&n/t>=.6?'var(--good)':t&&n/t>0?'var(--warn)':'var(--tx3)'}">${t?n+'/'+t:'–'}</span></td>`;}).join('')}<td class="sm bsum">${m.rows.length&&m.rows.every(r=>r.adv!=null&&r.t!=null)?sumOf(m.rows,r=>r.adv)+' of '+sumOf(m.rows,r=>r.t):sumOf(m.rows,r=>Number(r.tot)||0)}</td></tr>`:''}
     </tbody></table></div></div>`;
   return bar(first.kpi)+table+grid;
@@ -4014,7 +4042,7 @@ function liveBoardCsv(){
     inRole.forEach(p=>{const m=models.get(p.id);out.push([p.n,ST[p.s||'nodata'].l,m?m.kpi:'',...first.sums.map((s,i)=>m&&m.sums[i]?m.sums[i].v:''),m&&m.of?m.hit:'',m&&m.of?m.of:'',m&&m.of?Math.round(m.hit/m.of*100):'']);});
     inRole.forEach(p=>{const m=models.get(p.id);if(!m)return;
       out.push([]);out.push([p.n+' - '+m.kpi]);out.push([m.rowHead,...rg.days,m.totHead]);
-      m.rows.forEach(r=>out.push([r.label,...r.cells.map(c=>c.s==='hit'?'Met':c.s==='miss'?'Missed':''),r.tot]));});
+      m.rows.forEach(r=>out.push([r.label,...r.cells.map(c=>c.s==='hit'?'Met':c.s==='miss'?'Missed':c.s==='leave'?'On leave':''),r.tot]));});
   }
   const rows=boardRows().rows;
   ['week','month'].forEach(grain=>{

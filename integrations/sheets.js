@@ -26,8 +26,8 @@ function serviceAccount() {
   return key;
 }
 
-function fileId() {
-  const value = process.env.GOOGLE_SHEET_ID?.trim();
+function fileId(override) {
+  const value = override || process.env.GOOGLE_SHEET_ID?.trim();
   if (!value) throw new Error('Google file not configured');
   return value.match(/\/d\/([\w-]+)/)?.[1] || value;
 }
@@ -52,8 +52,8 @@ async function accessToken() {
   return tokenCache.value;
 }
 
-async function drive(pathAndQuery) {
-  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId()}${pathAndQuery}`, {
+async function drive(pathAndQuery, id) {
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId(id)}${pathAndQuery}`, {
     headers: { Authorization: `Bearer ${await accessToken()}` },
     signal: AbortSignal.timeout(60_000)
   });
@@ -65,13 +65,14 @@ async function drive(pathAndQuery) {
   return response;
 }
 
-/* Downloads the workbook (as-is if .xlsx, exported if a native Google Sheet) and returns every tab as rows. */
-async function getWorkbook() {
-  const meta = await (await drive('?fields=name,mimeType,modifiedTime&supportsAllDrives=true')).json();
+/* Downloads the workbook (as-is if .xlsx, exported if a native Google Sheet) and returns every tab as rows.
+   With no argument it reads GOOGLE_SHEET_ID; pass another file id or link to read a different workbook. */
+async function getWorkbook(id) {
+  const meta = await (await drive('?fields=name,mimeType,modifiedTime&supportsAllDrives=true', id)).json();
   const url = meta.mimeType === SHEET_MIME
     ? `/export?mimeType=${encodeURIComponent(XLSX_MIME)}`
     : '?alt=media&supportsAllDrives=true';
-  const buffer = Buffer.from(await (await drive(url)).arrayBuffer());
+  const buffer = Buffer.from(await (await drive(url, id)).arrayBuffer());
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const tabs = {};
   for (const name of workbook.SheetNames) {
