@@ -2905,8 +2905,8 @@ function vLiveReports(){
 function leaveRow(){
   const L=DATA.leave,d=L&&L.data,name='OOO Tracker (Google Sheets)';
   if(d)return {name,ok:true,detail:'Connected to OOO Tracker'};
-  if(L&&L.loading)return {name,ok:false,detail:'Reading the OOO Tracker…'};
   const err=L&&L.error;
+  if(!err)return {name,ok:false,detail:'Reading the OOO Tracker…'}; /* not answered yet: the slow KPIs load in the background */
   return {name,ok:false,detail:/not configured/i.test(err||'')?'Not set up: add GOOGLE_OOO_SHEET_ID to the server. Until then nobody is shown on leave.':liveEscape(err||'Not loaded yet')};
 }
 function vLiveStatus(){
@@ -3339,7 +3339,8 @@ async function loadSlowKpis(force,seqArg){
   await Promise.all([
     /* the OOO Tracker is quick and optional: one try, and a failure only means nobody is shown on leave */
     fetch('/api/leave'+(force?'?refresh=1':''),{cache:'no-store'}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||'Request failed');return d;})
-      .then(d=>{DATA.leave={data:d,error:null,loading:false};}).catch(e=>{DATA.leave={data:null,error:e.message,loading:false};}),
+      .then(d=>{DATA.leave={data:d,error:null,loading:false};}).catch(e=>{DATA.leave={data:null,error:e.message,loading:false};})
+      .then(()=>{if(seq===WIN_SEQ&&S.view==='status')render();}), /* System Status shows the answer straight away */
     get('/api/kpi/deals-presented'+q).then(d=>{DATA.dealsPresented={data:d,error:null,loading:false};}).catch(e=>{DATA.dealsPresented={data:null,error:e.message,loading:false};}),
     get('/api/kpi/deal-quality'+q).then(d=>{DATA.dealQuality={data:d,error:null,loading:false};}).catch(e=>{DATA.dealQuality={data:null,error:e.message,loading:false};}),
     get('/api/kpi/valuation-output'+q).then(d=>{DATA.valuationOutput={data:d,error:null,loading:false};}).catch(e=>{DATA.valuationOutput={data:null,error:e.message,loading:false};}),
@@ -3438,9 +3439,9 @@ function valuationOutputCard(person){
       models:'Deals moved out of Valuation Modeling to Valuation Model For Review or Axed, credited to the Financial Analyst the Valuation Modeling activity is assigned to. Deals sent back to the M&A Associate or to Action Required are not counted'+(p.notCounted!=null?` (${p.notCounted} in this range)`:'')+'. Exceptional: 30 or more a day · Target: 20 or more · Below target: under 20.',
       videos:'"Video Presentation" activities marked done, credited to the Proposal Specialist they are assigned to. Exceptional: 21 or more a day for 4 or more days in a week · Target: 15 to 20 · Below target: under 15.'}[k];
     return `<div style="margin-top:14px;font-size:13.5px;font-weight:620">${liveEscape(g.name)}</div>
-      <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">${intro} A day below ${g.goal} is a KPI gap when deals arrived before the 4:00 PM cutoff.${leaveN?` ${leaveN} working day${leaveN===1?'':'s'} in this range ${leaveN===1?'is':'are'} on approved leave (OOO Tracker) and not scored.`:''}</p>
-      ${sheetTable(['Last full working day','Done','Arrived by 4 PM','Zone','Result','Average per day (range)'],
-        [last?[liveEscape(loiShortDay(last.day)),last.built,last.arrived,away?'On leave now':zone(last.built),result(last),daily.length?Math.round(total/daily.length*10)/10:'—']:['—','—','—',away?'On leave now':pending,'—','—']])}
+      <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">${intro} A day below ${g.goal} is a KPI gap when deals arrived before the 4:00 PM cutoff.${leaveN?` ${leaveN} working day${leaveN===1?'':'s'} in this range ${leaveN===1?'is':'are'} on approved leave (OOO Tracker) and not scored.`:''}${away?' This person is on leave now, so the score shows On leave (No Data) until they are back. The table below shows the last day they worked.':''}</p>
+      ${sheetTable([away?'Last day worked':'Last full working day','Done','Arrived by 4 PM','Zone','Result','Average per day (range)'],
+        [last?[liveEscape(loiShortDay(last.day)),last.built,last.arrived,zone(last.built),result(last),daily.length?Math.round(total/daily.length*10)/10:'—']:['—','—','—',away?'On leave':pending,'—','—']])}
       ${sheetTable(['Week of','Working days','Days at or above '+g.goal,'KPI gap days','Average per day','Total',k==='videos'?'Sustained Exceptional week':'—'],weekRows)}
       <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">By day</summary>
         ${sheetTable(['Day','Done','Arrived by 4 PM','Zone','Result'],allDaily.slice().reverse().map(x=>lv(x.day)?[liveEscape(loiShortDay(x.day)),'—','—','On leave',liveEscape(lv(x.day))]:[liveEscape(loiShortDay(x.day))+(x.day>=today?' (in progress)':''),x.built,x.arrived,x.day>=today?'—':zone(x.built),x.day>=today?'—':result(x)]))}</details>`;
