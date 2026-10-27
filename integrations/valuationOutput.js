@@ -8,7 +8,7 @@ const { TIME_ZONE, etDay, addDays, toUtc, listPaged, listItems, chunk, fullName,
      credited to the person the "Valuation Modeling" activity was assigned to
    - Proposal Videos per Day (Proposal Specialist): "Video Presentation" activities completed, credited to the activity's responsible person
    Cutoff: work that arrives after 4:00 PM ET (or on a weekend or US holiday) is assessed on the next working day.
-   A day below the goal is a "KPI gap" when deals arrived before the cutoff (so work was available), as the document says. */
+   A day below the goal is a "KPI gap" only when work was left unfinished (more arrived than was done). If everything that arrived was done, it is "low volume". */
 const DEFAULT_WEEKS = 4;
 const MAX_WEEKS = 60;
 const WARMUP_DAYS = 8; /* covers a long weekend or holiday run, so work that arrived after the previous cutoff is included */
@@ -55,7 +55,7 @@ const addPending = (map, day, item) => { if (!map.has(day)) map.set(day, []); ma
 function dailyTable(spec, from, to, warmStart, arrivals, built, pending) {
   return workingDays(from, to).map(day => {
     const arrived = arrivals.get(day) || 0, done = built.get(day) || 0;
-    const row = { day, built: done, arrived, state: done >= spec.goal ? 'met' : arrived > 0 ? 'gap' : 'none' };
+    const row = { day, built: done, arrived, state: done >= spec.goal ? 'met' : arrived > done ? 'gap' : arrived > 0 ? 'low' : 'none' };
     const list = pending && pending.get(day);
     if (list && list.length) {
       row.notDone = list.length;
@@ -159,7 +159,7 @@ async function calculate({ from, to }) {
       'Work that arrives after 4:00 PM ET, or on a weekend, is assessed on the next working day. Completions on a weekend count on the next working day.',
       'Reviews are credited to the Valuation Team Lead role, because Bitrix does not assign a review to a person. Models and videos are credited to the person the Bitrix activity is assigned to.',
       'A model counts only when the deal moves out of Valuation Modeling to Valuation Model For Review or Axed. Deals sent back to the M&A Associate or to Action Required are not counted.',
-      'A day below the goal is a KPI gap when deals arrived before the cutoff, so work was available. Days below the goal with no arrivals show "No work arrived".',
+      'A day below the goal is a KPI gap only when more arrived than was done, so work was left unfinished. If everything that arrived was done, the day shows "Low volume". Days with no arrivals show "No work arrived".',
       'Videos are counted when the "Video Presentation" activity is marked done, on the day it was last updated.',
       'US holidays are not working days: no goal is set for them and work arriving then is assessed on the next working day.'
     ]

@@ -3428,7 +3428,7 @@ function valuationOutputCard(person){
   const mondayOfDay=day=>{const[y,m,dd]=day.split('-').map(Number);const t=new Date(y,m-1,dd);t.setDate(t.getDate()-((t.getDay()+6)%7));return iso(t);};
   const blocks=found.map(({k,g,p})=>{
     const zone=n=>n>=g.exceptional?'Exceptional':n>=g.floor?'Target':'Below target';
-    const result=x=>x.state==='met'?'Met':x.state==='gap'?'KPI gap':'No work arrived';
+    const result=x=>x.state==='met'?'Met':x.state==='gap'?'KPI gap':x.state==='low'?'Low volume':'No work arrived';
     const lv=day=>leaveOn(person.bitrixId,day);
     const allDaily=p.daily,daily=allDaily.filter(x=>!lv(x.day)); /* days on approved leave are not scored */
     const full=daily.filter(x=>x.day<today),last=full[full.length-1];
@@ -3449,7 +3449,7 @@ function valuationOutputCard(person){
       models:'Deals moved out of Valuation Modeling to Valuation Model For Review or Axed, credited to the Financial Analyst the Valuation Modeling activity is assigned to. Deals sent back to the M&A Associate or to Action Required are not counted'+(p.notCounted!=null?` (${p.notCounted} in this range)`:'')+'. Exceptional: 30 or more a day · Target: 20 or more · Below target: under 20.',
       videos:'"Video Presentation" activities marked done, credited to the Proposal Specialist they are assigned to. Exceptional: 21 or more a day for 4 or more days in a week · Target: 15 to 20 · Below target: under 15.'}[k];
     return `<div style="margin-top:14px;font-size:13.5px;font-weight:620">${liveEscape(g.name)}</div>
-      <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">${intro} A day below ${g.goal} is a KPI gap when deals arrived before the 4:00 PM cutoff.${leaveN?` ${leaveN} working day${leaveN===1?'':'s'} in this range ${leaveN===1?'is':'are'} on approved leave (OOO Tracker) and not scored.`:''}${away?' This person is on leave now, so the score shows On leave (No Data) until they are back. The table below shows the last day they worked.':''}</p>
+      <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">${intro} A day below ${g.goal} is a KPI gap only when work was left unfinished (more arrived by 4 PM than was done). If everything that arrived was done, it shows Low volume.${leaveN?` ${leaveN} working day${leaveN===1?'':'s'} in this range ${leaveN===1?'is':'are'} on approved leave (OOO Tracker) and not scored.`:''}${away?' This person is on leave now, so the score shows On leave (No Data) until they are back. The table below shows the last day they worked.':''}</p>
       ${sheetTable([away?'Last day worked':'Last full working day','Done','Arrived by 4 PM','Zone','Result','Average per day (range)'],
         [last?[liveEscape(loiShortDay(last.day)),last.built,last.arrived,zone(last.built),result(last),daily.length?Math.round(total/daily.length*10)/10:'—']:['—','—','—',away?'On leave':pending,'—','—']])}
       ${sheetTable(['Week of','Working days','Days at or above '+g.goal,'KPI gap days','Average per day','Total',k==='videos'?'Sustained Exceptional week':'—'],weekRows)}
@@ -3769,6 +3769,7 @@ function provValuation(person,days){
       const away=leaveOn(person.bitrixId,day);if(away)return LEAVE(`On approved leave (${away}). Not scored.`);
       if(e.state==='met')return {s:'hit',tip:`${e.built} done (goal ${g.goal}) · ${e.arrived} arrived by 4 PM`};
       if(e.state==='gap')return {s:'miss',tip:`${e.built} done, below the goal of ${g.goal} · ${e.arrived} arrived by 4 PM`};
+      if(e.state==='low')return NA(`Low volume: ${e.built} done, everything that arrived (${e.arrived}) was done. Not a gap.`);
       return NA('No work arrived');});
     const counted=days.filter(x=>!leaveOn(person.bitrixId,x));
     const done=sumOf(counted,x=>(m.get(x)||{}).built||0),withData=counted.filter(x=>m.get(x)).length;
