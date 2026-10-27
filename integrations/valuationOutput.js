@@ -46,11 +46,22 @@ async function activities(subject, createdSince) {
   }, listItems);
 }
 
+/* what arrived for a day's assessment but was not finished that day, per day. Each item is a deal, when it arrived and
+   where it stands: 'open' (not finished yet), 'other' (moved somewhere that does not count), or the later day it was finished. */
+const LIST_CAP = 80; /* items sent per day; the full count is always sent */
+const addPending = (map, day, item) => { if (!map.has(day)) map.set(day, []); map.get(day).push(item); };
+
 /* one row per working day: what was done, what arrived for that day's assessment, and the result */
-function dailyTable(spec, from, to, warmStart, arrivals, built) {
+function dailyTable(spec, from, to, warmStart, arrivals, built, pending) {
   return workingDays(from, to).map(day => {
     const arrived = arrivals.get(day) || 0, done = built.get(day) || 0;
-    return { day, built: done, arrived, state: done >= spec.goal ? 'met' : arrived > 0 ? 'gap' : 'none' };
+    const row = { day, built: done, arrived, state: done >= spec.goal ? 'met' : arrived > 0 ? 'gap' : 'none' };
+    const list = pending && pending.get(day);
+    if (list && list.length) {
+      row.notDone = list.length;
+      row.notDoneList = list.slice().sort((a, b) => (a.t < b.t ? -1 : 1)).slice(0, LIST_CAP);
+    }
+    return row;
   });
 }
 
@@ -78,25 +89,41 @@ async function calculate({ from, to }) {
   const modelArrivals = new Map(roster.models.map(p => [p.bitrixId, tally()]));
   const modelBuilt = new Map(roster.models.map(p => [p.bitrixId, tally()]));
   const modelExcluded = new Map(roster.models.map(p => [p.bitrixId, 0]));
+  const modelPending = new Map(roster.models.map(p => [p.bitrixId, new Map()]));
   for (const act of modelingActs) {
     const person = String(act.RESPONSIBLE_ID);
     if (!modelArrivals.has(person)) continue;
-    bump(modelArrivals.get(person), assessedOn(act.CREATED));
-    if (act.COMPLETED !== 'Y') continue;
-    const rows = history.get(String(act.OWNER_ID)) || [];
-    const exit = rows.find(row => new Date(row.CREATED_TIME) >= new Date(act.CREATED) && row.STAGE_ID !== STAGE.MODELING);
-    if (!exit) continue;
-    const day = completedOn(exit.CREATED_TIME);
-    if (day < from || day > to) continue;
-    if (exit.STAGE_ID === STAGE.REVIEW || exit.STAGE_ID === STAGE.AXED) bump(modelBuilt.get(person), day);
-    else modelExcluded.set(person, modelExcluded.get(person) + 1);
+    const arrivedOn = assessedOn(act.CREATED);
+    bump(modelArrivals.get(person), arrivedOn);
+    let status = 'open'; /* open, other (moved where it does not count), or the day it was finished */
+    if (act.COMPLETED === 'Y') {
+      const rows = history.get(String(act.OWNER_ID)) || [];
+      const exit = rows.find(row => new Date(row.CREATED_TIME) >= new Date(act.CREATED) && row.STAGE_ID !== STAGE.MODELING);
+      if (exit) {
+        const day = completedOn(exit.CREATED_TIME);
+        const counts = exit.STAGE_ID === STAGE.REVIEW || exit.STAGE_ID === STAGE.AXED;
+        status = counts ? day : 'other';
+        if (day >= from && day <= to) {
+          if (counts) bump(modelBuilt.get(person), day);
+          else modelExcluded.set(person, modelExcluded.get(person) + 1);
+        }
+      }
+    }
+    if (!(status !== 'open' && status !== 'other' && status <= arrivedOn)) addPending(modelPending.get(person), arrivedOn, { d: String(act.OWNER_ID), t: act.CREATED, s: status });
   }
 
   /* reviews */
-  const reviewArrivals = tally(), reviewBuilt = tally();
-  for (const rows of history.values()) {
+  const reviewArrivals = tally(), reviewBuilt = tally(), reviewPending = new Map();
+  for (const [dealId, rows] of history.entries()) {
     rows.forEach((row, index) => {
-      if (row.STAGE_ID === STAGE.REVIEW) bump(reviewArrivals, assessedOn(row.CREATED_TIME));
+      if (row.STAGE_ID === STAGE.REVIEW) {
+        const arrivedOn = assessedOn(row.CREATED_TIME);
+        bump(reviewArrivals, arrivedOn);
+        const next = rows[index + 1];
+        let status = 'open';
+        if (next) status = next.STAGE_ID === STAGE.PRESENTATION || next.STAGE_ID === STAGE.AXED ? completedOn(next.CREATED_TIME) : 'other';
+        if (!(status !== 'open' && status !== 'other' && status <= arrivedOn)) addPending(reviewPending, arrivedOn, { d: String(dealId), t: row.CREATED_TIME, s: status });
+      }
       if (index > 0 && rows[index - 1].STAGE_ID === STAGE.REVIEW && (row.STAGE_ID === STAGE.PRESENTATION || row.STAGE_ID === STAGE.AXED)) {
         const day = completedOn(row.CREATED_TIME);
         if (day >= from && day <= to) bump(reviewBuilt, day);
@@ -107,23 +134,27 @@ async function calculate({ from, to }) {
   /* videos */
   const videoArrivals = new Map(roster.videos.map(p => [p.bitrixId, tally()]));
   const videoBuilt = new Map(roster.videos.map(p => [p.bitrixId, tally()]));
+  const videoPending = new Map(roster.videos.map(p => [p.bitrixId, new Map()]));
   for (const act of videoActs) {
     const person = String(act.RESPONSIBLE_ID);
     if (!videoArrivals.has(person)) continue;
-    bump(videoArrivals.get(person), assessedOn(act.CREATED));
-    if (act.COMPLETED === 'Y') { const day = completedOn(act.LAST_UPDATED); if (day >= from && day <= to) bump(videoBuilt.get(person), day); }
+    const arrivedOn = assessedOn(act.CREATED);
+    bump(videoArrivals.get(person), arrivedOn);
+    const doneDay = act.COMPLETED === 'Y' ? completedOn(act.LAST_UPDATED) : null;
+    if (doneDay && doneDay >= from && doneDay <= to) bump(videoBuilt.get(person), doneDay);
+    if (!doneDay || doneDay > arrivedOn) addPending(videoPending.get(person), arrivedOn, { d: String(act.OWNER_ID), t: act.CREATED, s: doneDay || 'open' });
   }
 
-  const build = (key, arrivalsOf, builtOf, extra = () => ({})) => ({
+  const build = (key, arrivalsOf, builtOf, extra = () => ({}), pendingOf) => ({
     ...SPECS[key], title: undefined,
-    people: roster[key].map(person => ({ ...person, ...extra(person), daily: dailyTable(SPECS[key], from, to, warmStart, arrivalsOf(person), builtOf(person)) }))
+    people: roster[key].map(person => ({ ...person, ...extra(person), daily: dailyTable(SPECS[key], from, to, warmStart, arrivalsOf(person), builtOf(person), pendingOf && pendingOf(person)) }))
   });
   const portal = bitrix.portal();
   return {
-    range: { from, to }, timezone: TIME_ZONE, portal, provisional: true,
-    reviews: build('reviews', () => reviewArrivals, () => reviewBuilt),
-    models: build('models', p => modelArrivals.get(p.bitrixId), p => modelBuilt.get(p.bitrixId), p => ({ notCounted: modelExcluded.get(p.bitrixId) })),
-    videos: build('videos', p => videoArrivals.get(p.bitrixId), p => videoBuilt.get(p.bitrixId)),
+    range: { from, to }, timezone: TIME_ZONE, portal, provisional: true, listCap: LIST_CAP,
+    reviews: build('reviews', () => reviewArrivals, () => reviewBuilt, undefined, () => reviewPending),
+    models: build('models', p => modelArrivals.get(p.bitrixId), p => modelBuilt.get(p.bitrixId), p => ({ notCounted: modelExcluded.get(p.bitrixId) }), p => modelPending.get(p.bitrixId)),
+    videos: build('videos', p => videoArrivals.get(p.bitrixId), p => videoBuilt.get(p.bitrixId), undefined, p => videoPending.get(p.bitrixId)),
     notes: [
       'Work that arrives after 4:00 PM ET, or on a weekend, is assessed on the next working day. Completions on a weekend count on the next working day.',
       'Reviews are credited to the Valuation Team Lead role, because Bitrix does not assign a review to a person. Models and videos are credited to the person the Bitrix activity is assigned to.',

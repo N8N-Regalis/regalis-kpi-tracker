@@ -3404,6 +3404,16 @@ function dealQualityCards(person){
     ${sheetTable(['Associate','Moved to valuation','Reached Video Presentation','Axed first','Still in valuation','Rate','Zone'],lead.associates.map(x=>line(liveEscape(x.name),x.total,false)))}`);
 }
 /* ---- Valuation and proposal output: Reviews (KPI 3), Models Built (KPI 4), Proposal Videos (KPI 7) ---- */
+/* a toggle list of the deals that arrived for a day's assessment (by the 4:00 PM cutoff) and were not finished that day */
+function notDoneCell(x,portal,cap){
+  if(!x.notDone)return '—';
+  const when=t=>new Date(t).toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+  const state=s=>s==='open'?'Still not finished':s==='other'?'Moved on, does not count':'Finished '+loiShortDay(s);
+  const rows=(x.notDoneList||[]).map(i=>[`<a class="srcl" href="${liveEscape(portal)}/crm/deal/details/${liveEscape(i.d)}/" target="_blank" rel="noopener" data-src="1">Deal #${liveEscape(i.d)}</a>`,`<span style="white-space:nowrap">${liveEscape(when(i.t))}</span>`,`<span style="white-space:nowrap">${liveEscape(state(i.s))}</span>`]);
+  return `<details><summary style="cursor:pointer;color:var(--acc);font-weight:600">${x.notDone} arrived but not finished that day</summary>
+    ${sheetTable(['Deal (opens in Bitrix)','Arrived (ET)','Where it stands'],rows)}
+    ${x.notDone>rows.length?`<p style="font-size:12px;color:var(--tx3);margin:6px 0 0">Showing the first ${rows.length} of ${x.notDone}, oldest first.</p>`:''}</details>`;
+}
 function valuationOutputCard(person){
   const L=DATA.valuationOutput;
   const d=L&&L.data;
@@ -3444,7 +3454,12 @@ function valuationOutputCard(person){
         [last?[liveEscape(loiShortDay(last.day)),last.built,last.arrived,zone(last.built),result(last),daily.length?Math.round(total/daily.length*10)/10:'—']:['—','—','—',away?'On leave':pending,'—','—']])}
       ${sheetTable(['Week of','Working days','Days at or above '+g.goal,'KPI gap days','Average per day','Total',k==='videos'?'Sustained Exceptional week':'—'],weekRows)}
       <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">By day</summary>
-        ${sheetTable(['Day','Done','Arrived by 4 PM','Zone','Result'],allDaily.slice().reverse().map(x=>lv(x.day)?[liveEscape(loiShortDay(x.day)),'—','—','On leave',liveEscape(lv(x.day))]:[liveEscape(loiShortDay(x.day))+(x.day>=today?' (in progress)':''),x.built,x.arrived,x.day>=today?'—':zone(x.built),x.day>=today?'—':result(x)]))}</details>`;
+        <table class="tbl" style="margin-top:8px"><thead><tr>${['Day','Done','Arrived by 4 PM','Zone','Result'].map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>
+        ${allDaily.slice().reverse().map(x=>{
+          const away=lv(x.day),list=!away&&x.notDone?notDoneCell(x,d.portal,d.listCap):''; /* the list gets its own full-width row under the day */
+          const cells=away?[liveEscape(loiShortDay(x.day)),'—','—','On leave',liveEscape(away)]:[liveEscape(loiShortDay(x.day))+(x.day>=today?' (in progress)':''),x.built,x.arrived,x.day>=today?'—':zone(x.built),x.day>=today?'—':result(x)];
+          return `<tr>${cells.map(c=>`<td${list?' style="border-bottom:0"':''}>${c}</td>`).join('')}</tr>${list?`<tr><td colspan="5" style="padding-top:0">${list}</td></tr>`:''}`;}).join('')}
+        </tbody></table></details>`;
   }).join('');
   return wrap(blocks);
 }
