@@ -1280,7 +1280,7 @@ const NAV=[
  ]},
  {g:'Look deeper',items:[
    {id:'people',n:'Teams & People',i:'users'},
-   {id:'pipeline',n:'Pipeline Health',i:'flow'},
+   /* Pipeline Health is hidden, not removed: add {id:'pipeline',n:'Pipeline Health',i:'flow'} back here to show it again */
    {id:'kpicheck',n:'KPI Check',i:'check2'}
  ]},
  {g:'Admin',items:[
@@ -2474,7 +2474,6 @@ const SOP_MGMT=[
  {t:'Use KPI Bonus at month end',d:'Pick the month at the top. A month is only rated after it ends, and it is rated by the lowest result among its finished weeks or months, so a dark square means every counted period was Exceptional. The <b>Run</b> column counts months in a row, and 3 or more marks a priority bonus candidate. <b>Export</b> downloads the table.'},
  {t:'Find anyone in Teams & People',d:'The <b>List</b> view shows every active contractor from Bitrix with their latest result. Search by name or job title, filter by team, job title or person, sort the list, or pick dates to see each person’s result for that stretch. <b>Export list</b> downloads what you see.'},
  {t:'Use the Board when you manage many people in one role',d:'Teams & People → <b>Board</b> → pick a job title. The table ranks everyone in that role with their hit rate. Click a row to see that person day by day: <b>✓</b> met, <b>✕</b> missed, a dot means nothing to count that day, and <b>OOO</b> means approved leave, which is not scored. Ranges longer than 24 working days show one square per week. The Dates button changes the range.'},
- {t:'Read Pipeline Health when deals seem slow',d:'It shows how many deals moved into each step of the pipeline between the dates you pick, and what share of the deals in the step above got that far. A banner names the step holding things up when more deals arrive each day than leave it. The waiting-time table and the “in it now” counts always show today, whatever dates you pick.'},
  {t:'Send the Company Report to partners',d:'Company Report → <b>Print report</b>, then choose Save as PDF. It summarises the whole company, each team, who needs action now, who is doing well, and the data gaps that limit the scores. <b>Export contractors</b> gives a spreadsheet.'},
  {t:'If a number looks wrong, check three things',d:'First <b>System Status</b>: if a source is not connected, the numbers that depend on it show No Data rather than an old value. Second, open the person’s panel and read the card for that KPI, which lists the deals, tasks or rows that were counted. Third, the <b>Data gaps</b> list at the bottom of the Company Report names fields missing in Bitrix that hold scores back.'},
  {t:'Refresh before a meeting',d:'The button at the top right reads Bitrix again and shows when the data was last pulled. Some KPIs take about a minute to load. A banner says so, and the numbers can change until it disappears.'}
@@ -2496,7 +2495,6 @@ const GUIDE_PAGES=[
  ['warnings','Early Warnings','People drifting below target, before they reach Problem.','Once a week'],
  ['bonus','KPI Bonus','Who has been Exceptional, month by month, and for how many months in a row.','At month end'],
  ['people','Teams & People','Everyone as a list, or the Board to compare a job title day by day.','To find a person or compare a role'],
- ['pipeline','Pipeline Health','Where deals sit in the pipeline and where they stall.','When deals feel slow'],
  ['kpicheck','KPI Check','Whether each KPI moves together with business results.','Quarterly, when reviewing the KPIs'],
  ['reports','Company Report','A written summary to print or export.','Before partner meetings'],
  ['status','System Status','Whether Bitrix, Google Sheets and Notion are connected.','When a number looks wrong']
