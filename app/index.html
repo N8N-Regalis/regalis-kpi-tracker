@@ -391,6 +391,8 @@ table.bgrid{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5p
 .rolerow.on td{background:var(--sel)!important}
 .rolerow.on td.cl{box-shadow:inset 3px 0 0 var(--tx)}
 /* segmented */
+.ptool .fl{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:12px;color:var(--tx3);font-weight:600;letter-spacing:.02em;text-transform:uppercase}
+.ptool .btn,.ptool .ctl{white-space:nowrap;flex:none}
 .seg2{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
 .seg2 button{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;color:var(--tx3)}
 .seg2 button.on{background:var(--panel);color:var(--tx);box-shadow:0 1px 2px rgba(0,0,0,.07)}
@@ -2688,11 +2690,15 @@ function vLivePeople(){
   const cnt=scoreCounts(people);
   return `<div class="page"><div class="ph"><h1 class="pt">Teams & People ${scopeLine()}</h1>
     <div class="ps">Active contractors from Bitrix with their ${S.peopleMode==='list'&&lpRange()?'KPI result for the picked dates':'latest KPI score'}.${slowStillLoading()?' Some KPIs are still loading, so scores may change.':''}</div></div>
-    <div class="sec" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <div class="sec ptool" style="display:flex;flex-direction:column;gap:10px;align-items:stretch">
+     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <div class="seg2"><button class="${S.peopleMode==='list'?'on':''}" data-pmode="list">${ic('list',14,2)} List</button>
         <button class="${S.peopleMode==='board'?'on':''}" data-pmode="board">${ic('grid',14,2)} Board</button></div>
-      ${S.peopleMode==='list'?`<div style="position:relative;flex:1;min-width:200px;max-width:300px"><span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--tx3)">${ic('search',15,2)}</span>
+      ${S.peopleMode==='list'?`<div style="position:relative;flex:1 1 150px;min-width:150px;max-width:260px"><span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--tx3)">${ic('search',15,2)}</span>
         <input class="searchin" id="pSearch" placeholder="Search a person or job title…" value="${liveEscape(S.search||'')}" style="padding-left:34px;margin:0"></div>`:''}
+      <div style="flex:1"></div>${S.peopleMode==='list'?`<button class="btn sm" data-exp="xls">${ic('xls',14,1.9)} Export list</button>`:''}
+     </div>
+     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       ${S.peopleMode==='list'?`<span class="fl">${ic('cal',13,2)} Dates</span>
         <button class="ctl" id="lpDateBtn" data-tip="Show each person's result for these dates: the latest finished week or month inside them. The default is each person's latest finished period." data-hdr="Dates">${ic('cal',14,2)} <b>${liveEscape(lpRange()?lpRange().label+(S.lpPreset==='Custom'?' ('+lpRange().from+' to '+lpRange().to+')':''):LP_LATEST)}</b> ${ic('chev',13,2.2)}</button>
         `:''}
@@ -2700,7 +2706,8 @@ function vLivePeople(){
       ${S.peopleMode==='list'?`<button class="ctl" id="lpRoleBtn" data-tip="Show only people with this job title." data-hdr="Job title">${ic('grid',14,2)} <b>${liveEscape(S.lpRole||LP_ALL)}</b> ${ic('chev',13,2.2)}</button>
         <button class="ctl" id="personBtn2"><b>${liveEscape(effPerson())}</b> ${ic('chev',13,2.2)}</button>
         <button class="ctl" id="sortBtn"><b>${SORTS[S.sort]}</b> ${ic('chev',13,2.2)}</button>`:''}
-      <div style="flex:1"></div>${S.peopleMode==='list'?`<button class="btn sm" data-exp="xls">${ic('xls',14,1.9)} Export list</button>`:''}
+      ${(effTeam()!=='All teams'||effPerson()!=='All people'||S.statusFilter||S.search||S.lpRole||(S.lpPreset||LP_LATEST)!==LP_LATEST||S.sort!=='status'||(S.boardSort||'worst')!=='worst')?`<button class="btn sm" data-clearf="1">${ic('x',13,2.4)} Clear filters</button>`:''}
+     </div>
     </div>
     ${S.peopleMode==='board'?liveBoard():
       `<div class="sec"><div class="sh"><span class="st">${people.length} ${people.length===1?'contractor':'contractors'}</span><span class="sn">${cnt.problem} Problem · ${cnt.attention} Needs Attention · ${cnt.ontrack} On Target · ${cnt.exceptional} Exceptional · ${cnt.nodata} No Data</span></div>
@@ -4526,7 +4533,10 @@ document.addEventListener('click',e=>{
     renderTop();render();
     toast(d.jstatus?`Showing ${ST[d.jstatus].l.toLowerCase()} only`:'Showing everyone who is exceptional','right');
     return;}
-  if(d.clearf){S.team='All teams';S.person='All people';S.statusFilter=null;S.search='';render();renderTop();return;}
+  if(d.clearf){S.team='All teams';S.person='All people';S.statusFilter=null;S.search='';
+    S.lpRole=null;S.boardRole=null;S.boardPerson=null;S.sort='status';S.boardSort='worst';
+    S.lpPreset=LP_LATEST;S.lpFrom=null;S.lpTo=null;
+    render();renderTop();return;}
   if(d.nav){S.view=d.nav;S.search='';S.statusFilter=null;document.getElementById('content').scrollTop=0;renderTop();render();hidePop();return;}
   if(d.date){
     const [f,t]=rangeFor(d.date);
@@ -4565,8 +4575,9 @@ document.addEventListener('click',e=>{
       }
     }
     render();return;}
-  if(d.brole){S.boardRole=d.brole;S.boardPerson=null;hidePop();render();return;}
-  if(d.lprole){S.lpRole=d.lprole;hidePop();render();return;}
+  /* the job title is one filter shared by List and Board */
+  if(d.brole){S.boardRole=d.brole;S.lpRole=d.brole;S.boardPerson=null;hidePop();render();return;}
+  if(d.lprole){S.lpRole=d.lprole;if(d.lprole!==LP_ALL){S.boardRole=d.lprole;S.boardPerson=null;}hidePop();render();return;}
   if(d.lppreset){S.lpPreset=d.lppreset;S.lpFrom=null;S.lpTo=null;hidePop();render();toast(d.lppreset===LP_LATEST?"Showing each person's latest finished period":`Showing results for ${d.lppreset.toLowerCase()}`,'cal');return;}
   if(d.guide){S.guideTab=d.guide;render();return;}
   if(d.expperson){exportPerson(d.expperson);hidePop();return;}
