@@ -1,6 +1,7 @@
 const bitrix = require('./bitrix');
 const { isWorkingDay } = require('./holidays');
 const config = require('./config');
+const { leave } = require('./leave');
 const { reportToday } = config;
 
 /* Bitrix Tasks KPIs from the Score Card Mapping document:
@@ -35,11 +36,11 @@ function validDay(value, name) {
 }
 
 /* Mon-Fri days elapsed after `from` up to and including `to` (same day = 0). US holidays are skipped. */
-function businessDays(from, to) {
+function businessDays(from, to, off) {
   if (to <= from) return 0;
   let n = 0;
   for (let day = addDays(from, 1); day <= to; day = addDays(day, 1)) {
-    if (isWorkingDay(day)) n++;
+    if (isWorkingDay(day) && !(off && off(day))) n++;
   }
   return n;
 }
@@ -96,7 +97,7 @@ const emptyBucket = kind => kind === 'onTime' ? { due: 0, onTime: 0, ahead: 0, l
 const bump = (buckets, field, n = 1) => buckets.forEach(bucket => { bucket[field] += n; });
 
 /* `bucketsFor(day)` returns the [day, week, month, overall] buckets a result on that day belongs to. */
-function addTask(kind, task, bucketsFor, range, today, now, flag) {
+function addTask(kind, task, bucketsFor, range, today, now, flag, off) {
   const closed = task.closedDate && Number(task.status) === 5 ? task.closedDate : null;
   if (kind === 'onTime') {
     if (!task.deadline || [6, 7].includes(Number(task.status))) return;
@@ -123,8 +124,9 @@ function addTask(kind, task, bucketsFor, range, today, now, flag) {
     if ([6, 7].includes(Number(task.status))) return;
     const created = etDay(task.createdDate);
     if (created < range.from || created > range.to) return;
+    if (off && off(created)) return; /* created while on approved leave: not scored */
     const buckets = bucketsFor(created);
-    const elapsed = businessDays(created, closed ? etDay(closed) : today);
+    const elapsed = businessDays(created, closed ? etDay(closed) : today, off); /* leave days do not count toward the window */
     bump(buckets, 'assigned');
     if (closed && elapsed <= WINDOW_BUSINESS_DAYS) {
       bump(buckets, 'within');
@@ -147,6 +149,9 @@ function addTask(kind, task, bucketsFor, range, today, now, flag) {
 
 async function calculate({ from, to }) {
   const users = await getUsers();
+  /* approved leave from the OOO Tracker; if it cannot be read, nothing is skipped */
+  let leaveRows = {};
+  try { leaveRows = (await leave({})).people || {}; } catch { leaveRows = {}; }
   const now = new Date();
   const today = etDay(now);
   const portal = bitrix.portal();
@@ -173,6 +178,7 @@ async function calculate({ from, to }) {
         if (!days.has(day)) days.set(day, emptyBucket(def.kind));
         return [days.get(day), weekly.get(mondayOf(day)), monthly.get(day.slice(0, 7)), total];
       };
+      const offFor = def.kind === 'daily' ? day => (leaveRows[person.id] || []).some(row => row.start <= day && day <= row.end) : null;
       const flagged = [];
       const flag = (task, reason, hours) => flagged.push({
         id: String(task.id), title: String(task.title || '').slice(0, 140), reason,
@@ -181,7 +187,7 @@ async function calculate({ from, to }) {
         url: `${portal}/workgroups/group/${def.group}/tasks/task/view/${task.id}/`
       });
       tasks.filter(task => String(task.responsibleId) === person.id || (def.participants && (task.accomplices || []).map(String).includes(person.id)))
-        .forEach(task => addTask(def.kind, task, bucketsFor, range, today, now, flag));
+        .forEach(task => addTask(def.kind, task, bucketsFor, range, today, now, flag, offFor));
       return {
         bitrixId: person.id,
         name: person.name,
@@ -199,6 +205,7 @@ async function calculate({ from, to }) {
     range, timezone: TIME_ZONE, weeks, months, kpis, provisional: true,
     notes: [
       'Credit goes to the responsible person on each Bitrix task. Roles are matched by Bitrix job title. Operations Associates are also credited for tasks where they are a participant.',
+      'Daily Tasks Completed: a task created on a day the person is on approved leave (OOO Tracker) is not scored, and leave days do not count toward the 2-business-day window.',
       'Working days count Monday to Friday in ET, skipping US holidays.',
       'Not automated: whether work was accurate, "ahead of deadline" consistency, approved carry-over reasons beyond the comment count, and deadline adjustments made for the stage or team a task is waiting on.'
     ]

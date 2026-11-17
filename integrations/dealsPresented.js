@@ -2,16 +2,22 @@ const bitrix = require('./bitrix');
 const { reportToday } = require('./config');
 const { TIME_ZONE, etDay, mondayOf, addDays, listPaged, listItems, chunk, fullName, historyFor, entriesInto, weeksBetween, resolveRange } = require('./crmHistory');
 
-/* Deals Presented per Client per Week (Score Card Mapping KPI 29, M&A Associate).
-   A deal counts when it moves straight from Video Presentation to Broker Intro Call, Seller Call or LOI Stage,
-   and is counted in the week of the deal's Presented Date (falls back to the move day, ET, when it is empty). It is credited to the client's Responsible person if that person is an M&A Associate.
-   Clients counted: contacts whose Client's Status is "Deal Flow". Volume: Low = 1 per month, Medium = 2 per month,
-   Normal or not set = 1 per week. */
+/* Deals Presented per Client per Week (Score Card Mapping KPI 29, M&A Associate). Rule updated 2026-11-17:
+   Presented = a deal with a Presented Date in the period (ET calendar date). Accepted = a presented deal that moved straight from
+   Video Presentation to Broker Intro Call, Seller Call, IOI Stage or LOI Stage (no Presented Date = counted on the move day).
+   Deals axed with the reason "Auto-axed" are not client rejections and are not counted as presented.
+   Normal or not set (weekly): Target = at least 1 accepted and at least 2 presented per week, Exceptional = 3+ accepted, otherwise below target.
+   Low (monthly; Medium is treated as Low, there is no Medium rule any more): Target = 1+ accepted and 2+ presented per month, Exceptional = 2+ accepted,
+   Below target = 0 presented in 2 months. Credited to the client's Responsible person if that person is an M&A Associate.
+   Clients counted: contacts whose Client's Status is "Deal Flow". */
 const FROM_STAGE = 'DEAL_PRESENTATION';
 const TO_STAGES = ['INTRO_CALL', 'SELLER_CALL', 'IOI_STAGE', 'NEGOTIATION'];
 const STATUS_FIELD = 'UF_CRM_1755185977882';
 const VOLUME_FIELD = 'UF_CRM_1770744593756';
 const PRESENTED_DATE_FIELD = 'UF_CRM_1768236671239';
+const AXED_STAGE = 'LOSE';
+const AXED_REASON_FIELD = 'UF_CRM_1755636401';
+const AUTO_AXED = '881'; /* "Auto-axed - Partner did not respond for 1 week" */
 const ACTIVE_STATUS = 'Deal Flow';
 const DEFAULT_WEEKS = 8;
 const MAX_WEEKS = 60;
@@ -38,7 +44,7 @@ async function calculate({ from: rangeFrom, to }) {
     if (!associate) { notAssociate++; continue; }
     const volume = volumeName.get(String(contact[VOLUME_FIELD])) || null;
     const client = { id: String(contact.ID), name: [contact.NAME, contact.LAST_NAME].filter(Boolean).join(' ').trim() || `Client ${contact.ID}`,
-      volume: volume === 'Low' || volume === 'Medium' ? volume : 'Normal', volumeSet: Boolean(volume), deals: [] };
+      volume: volume === 'Low' || volume === 'Medium' ? 'Low' : 'Normal', volumeSet: Boolean(volume), deals: [] };
     clients.set(client.id, client);
     associate.clients.push(client);
   }
@@ -55,28 +61,34 @@ async function calculate({ from: rangeFrom, to }) {
     });
   }
 
-  /* the week comes from the deal's Presented Date, not from the day it was answered; no Presented Date = the move day */
-  const contactOf = new Map();
-  for (const ids of chunk([...moves.keys()], 50)) {
-    const deals = await listPaged('crm.deal.list', { filter: { ID: ids }, select: ['ID', 'CONTACT_ID', PRESENTED_DATE_FIELD] }, listItems);
-    deals.forEach(deal => {
-      const move = moves.get(String(deal.ID));
-      contactOf.set(String(deal.ID), String(deal.CONTACT_ID));
-      /* a Bitrix date comes back as a timestamp at midnight in the portal's zone, so read the calendar date from the text */
-      const presented = String(deal[PRESENTED_DATE_FIELD] || '').slice(0, 10);
-      move.day = /^\d{4}-\d{2}-\d{2}$/.test(presented) ? presented : move.moveDay;
-    });
+  /* presented = Presented Date in the range (any outcome); accepted = also moved straight out of Video Presentation to an accepted stage */
+  const select = ['ID', 'CONTACT_ID', 'STAGE_ID', PRESENTED_DATE_FIELD, AXED_REASON_FIELD];
+  const rowsById = new Map();
+  const byDate = await listPaged('crm.deal.list', { filter: { [`>=${PRESENTED_DATE_FIELD}`]: from, [`<${PRESENTED_DATE_FIELD}`]: addDays(to, 1) }, select }, listItems);
+  byDate.forEach(deal => rowsById.set(String(deal.ID), deal));
+  for (const ids of chunk([...moves.keys()].filter(id => !rowsById.has(id)), 50)) {
+    (await listPaged('crm.deal.list', { filter: { ID: ids }, select }, listItems)).forEach(deal => rowsById.set(String(deal.ID), deal));
   }
-  for (const [dealId, move] of moves) if (!move.day || move.day < from || move.day > to) moves.delete(dealId);
+  const presentedDeals = [];
+  let autoAxed = 0;
+  for (const [dealId, deal] of rowsById) {
+    const move = moves.get(dealId);
+    /* a Bitrix date comes back as a timestamp at midnight in the portal's zone, so read the calendar date from the text */
+    const presented = String(deal[PRESENTED_DATE_FIELD] || '').slice(0, 10);
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(presented) ? presented : move && move.moveDay;
+    if (!day || day < from || day > to) continue;
+    if (deal.STAGE_ID === AXED_STAGE && String(deal[AXED_REASON_FIELD]) === AUTO_AXED) { autoAxed++; continue; }
+    presentedDeals.push({ dealId, contactId: String(deal.CONTACT_ID), day, moveDay: move ? move.moveDay : null, accepted: Boolean(move), stage: move ? move.stage : deal.STAGE_ID });
+  }
 
   /* nothing is presented on a weekend, so a week is finished once its Friday has passed */
   const today = reportToday();
   const weeks = weeksBetween(from, to).map(week => ({ ...week, inProgress: addDays(week.start, 4) >= today }));
   let unmatched = 0;
-  for (const move of moves.values()) {
-    const client = clients.get(contactOf.get(move.dealId));
+  for (const deal of presentedDeals) {
+    const client = clients.get(deal.contactId);
     if (!client) { unmatched++; continue; }
-    client.deals.push({ id: move.dealId, day: move.day, week: mondayOf(move.day), stage: move.stage, answeredOn: move.moveDay });
+    client.deals.push({ id: deal.dealId, day: deal.day, week: mondayOf(deal.day), stage: deal.stage, accepted: deal.accepted, answeredOn: deal.moveDay });
   }
 
   const portal = bitrix.portal();
@@ -87,18 +99,20 @@ async function calculate({ from: rangeFrom, to }) {
     clients: associate.clients.sort((a, b) => a.name.localeCompare(b.name)).map(client => ({
       id: client.id, name: client.name, volume: client.volume, volumeSet: client.volumeSet, url: `${portal}/crm/contact/details/${client.id}/`,
       weekly: weeks.map(week => client.deals.filter(deal => deal.week === week.start).length),
+      weeklyAccepted: weeks.map(week => client.deals.filter(deal => deal.week === week.start && deal.accepted).length),
       monthly: Object.fromEntries(months.map(month => [month, client.deals.filter(deal => deal.day.startsWith(month)).length])),
+      monthlyAccepted: Object.fromEntries(months.map(month => [month, client.deals.filter(deal => deal.day.startsWith(month) && deal.accepted).length])),
       deals: client.deals.sort((a, b) => (a.day < b.day ? -1 : 1)).map(deal => ({ ...deal, url: `${portal}/crm/deal/details/${deal.id}/` }))
     }))
   }));
 
   return {
     range: { from: rangeFrom, to }, timezone: TIME_ZONE, weeks, months, associates: rows, provisional: true,
-    totals: { clients: clients.size, associates: rows.length, dealsMoved: moves.size, dealsNotMatchedToAClient: unmatched, dealFlowClientsWithoutAnAssociate: notAssociate },
+    totals: { clients: clients.size, associates: rows.length, dealsPresented: presentedDeals.length, autoAxedNotCounted: autoAxed, dealsNotMatchedToAClient: unmatched, dealFlowClientsWithoutAnAssociate: notAssociate },
     notes: [
-      'A deal counts once it has moved straight from Video Presentation to Broker Intro Call, Seller Call, IOI Stage or LOI Stage. It is counted in the week of its Presented Date, even if the response came in a later week (a deal with no Presented Date is counted in the week it moved). Each deal is counted once.',
-      'Clients counted: Client\'s Status is Deal Flow and the Responsible person is an active M&A Associate.',
-      'A client with no Low or Medium volume set is a Normal volume client (confirmed) and is held to at least 1 deal per week. Low volume clients need at least 1 per month and Medium at least 2 per month.'
+      'A deal is presented when it has a Presented Date, counted in the week (or month) of that date. It is accepted when it also moved straight from Video Presentation to Broker Intro Call, Seller Call, IOI Stage or LOI Stage (a deal with no Presented Date is counted on the day it moved). Each deal is counted once. Deals axed with the reason Auto-axed are not counted.',
+      "Clients counted: Client's Status is Deal Flow and the Responsible person is an active M&A Associate.",
+      'Normal volume (and any client with no volume set), per week: Target = at least 1 accepted and at least 2 presented; Exceptional = 3 or more accepted; Below target = fewer than 2 presented or no accepted deal. Low volume, per month: Target = at least 1 accepted and 2 presented; Exceptional = 2 or more accepted; Below target = 0 presented in 2 months.'
     ]
   };
 }

@@ -7,7 +7,7 @@ const { dealsPresented } = require('./dealsPresented');
 /* Team Sourcing Health (Score Card Mapping KPI 26, Deal Manager):
    share of M&A associates who reached the monthly baseline of 4 accepted and presented deals
    (1 per client per week x 4). Team target = headcount x 4.
-   "Accepted and presented" uses the same rule as Deals Presented per Client per Week: a deal that moved straight from
+   "Accepted and presented" = the accepted deals of Deals Presented per Client per Week: a deal that moved straight from
    Video Presentation to Broker Intro Call, Seller Call, IOI Stage or LOI Stage in the month. */
 const BASELINE_PER_ASSOCIATE = 4;
 const MONTHS_BACK = 2;
@@ -26,7 +26,7 @@ async function calculate({ force }) {
     bitrixId: associate.bitrixId,
     name: associate.name,
     clients: associate.clients.length,
-    monthly: Object.fromEntries(months.map(month => [month, associate.clients.reduce((sum, client) => sum + (client.monthly[month] || 0), 0)]))
+    monthly: Object.fromEntries(months.map(month => [month, associate.clients.reduce((sum, client) => sum + (client.monthlyAccepted[month] || 0), 0)]))
   }));
   const rows = months.map(month => {
     const met = associates.filter(associate => associate.monthly[month] >= BASELINE_PER_ASSOCIATE).length;

@@ -36,7 +36,7 @@ async function calculate({ force }) {
     const team = members.filter(member => scored(member, month));
     const met = team.filter(member => (member.monthly[month] || 0) >= member.baseline);
     return { month, inProgress: month === thisMonth, headcount: team.length, met: met.length, share: team.length ? Math.round(met.length / team.length * 1000) / 10 : null,
-      members: members.map(member => ({ name: member.name, role: member.role, baseline: member.baseline, count: member.monthly[month] || 0,
+      members: members.map(member => ({ bitrixId: member.bitrixId, name: member.name, role: member.role, baseline: member.baseline, count: member.monthly[month] || 0,
         scored: scored(member, month), met: scored(member, month) ? (member.monthly[month] || 0) >= member.baseline : null })) };
   });
   return {

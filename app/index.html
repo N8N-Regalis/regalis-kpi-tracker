@@ -3027,6 +3027,15 @@ function dealOpsCard(person){
   return wrap(sheetKpiBlock('LOI Completion Rate',items,'New and counter LOIs finished within 3 business hours. Exceptional 90% or more · Target 80–89% · Below target under 80% for 2 consecutive weeks.'));
 }
 /* ---- Signed LOIs per Week (Score Card Mapping KPI 22) and Team Signed LOIs per Week (KPI 21) ---- */
+/* analysts away for every working day of a week do not add to that week's team target */
+function loiTeamTarget(d,w){return d.analysts.filter(a=>!weekAway(a.bitrixId,w)).length;}
+function monthAway(bitrixId,m){const last=new Date(Number(m.slice(0,4)),Number(m.slice(5,7)),0).getDate();const ds=workdayList(m+'-01',m+'-'+String(last).padStart(2,'0'));return ds.length>0&&ds.every(x=>leaveOn(bitrixId,x));}
+/* Team Sourcing Health and Team LOI & Closing Health: a person away for the whole month is left out of that month's headcount */
+function thMonth(d,m){const list=d.associates.filter(a=>!monthAway(a.bitrixId,m.month));const met=list.filter(a=>(a.monthly[m.month]||0)>=d.baseline).length;
+  return {...m,headcount:list.length,met,share:list.length?Math.round(met/list.length*1000)/10:null,teamTarget:list.length*d.baseline,away:d.associates.length-list.length};}
+function tlcMonth(m){const members=m.members.map(x=>{const away=x.scored&&x.bitrixId&&monthAway(x.bitrixId,m.month);return away?{...x,scored:false,met:null,away:true}:x;});
+  const team=members.filter(x=>x.scored),met=team.filter(x=>x.met).length;
+  return {...m,members,headcount:team.length,met,share:team.length?Math.round(met/team.length*1000)/10:null};}
 function loiWeekZone(n){return n>=2?'Exceptional':n>=1?'Target':'No signed LOI';}
 function loiShortDay(day){const[y,m,d]=day.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString('en-US',{month:'short',day:'numeric'});}
 function signedLoiCard(person){
@@ -3042,22 +3051,25 @@ function signedLoiCard(person){
   const lastDone=done[done.length-1];
   if(isLead){
     const target=d.team.target;
-    let streak=0;
-    for(let k=done.length-1;k>=0;k--){if(d.team.weekly[done[k].i].total<target)streak++;else break;}
-    const status=streak===0?'Exceptional':streak<=2?'Target':'Below target';
-    noteScore('Team Signed LOIs per Week',status);
-    /* a miss is Needs Attention until it is the 3rd week in a row, then Below target */
-    let run=0;
-    noteSeries('Team Signed LOIs per Week','week',d.weeks.map((w,i)=>{
+    const targetOf=i=>loiTeamTarget(d,d.weeks[i]);
+    /* run of finished weeks in a row: met (>= target) or missed */
+    let metRun=0,missRun=0;
+    const zoneFor=(run,miss)=>run>=3?'Exceptional':run>=1?'Target':miss>2?`Below target (missed ${miss} weeks in a row)`:'Missed (not below target yet)';
+    const series=d.weeks.map((w,i)=>{
       if(w.inProgress)return {label:loiShortDay(w.start),iso:w.start,text:'In progress'};
-      const met=d.team.weekly[i].total>=target;
-      run=met?0:run+1;
-      return {label:loiShortDay(w.start),iso:w.start,text:met?'Target':run>2?`Below target (missed ${run} weeks in a row)`:'No signed LOI (missed, not below target yet)'};
-    }));
-    const rows=d.weeks.map((w,i)=>{const t=d.team.weekly[i].total;
-      return [liveEscape(loiShortDay(w.start))+(w.inProgress?' (in progress)':''),t,target,w.inProgress?'—':t>=target?'Met':'Missed'];});
+      if(targetOf(i)===0)return {label:loiShortDay(w.start),iso:w.start,text:'On leave'};
+      const met=d.team.weekly[i].total>=targetOf(i);
+      metRun=met?metRun+1:0;missRun=met?0:missRun+1;
+      return {label:loiShortDay(w.start),iso:w.start,text:zoneFor(metRun,missRun)};
+    });
+    const streak=missRun;
+    const status=!done.length?(d.weeks.some(w=>w.inProgress)?'In progress':'No Data'):zoneFor(metRun,missRun);
+    noteScore('Team Signed LOIs per Week',status);
+    noteSeries('Team Signed LOIs per Week','week',series);
+    const rows=d.weeks.map((w,i)=>{const t=d.team.weekly[i].total,tg=targetOf(i);
+      return [liveEscape(loiShortDay(w.start))+(w.inProgress?' (in progress)':''),t,tg+(tg<target?` (${target-tg} on leave)`:''),w.inProgress?'—':tg===0?'On leave':t>=tg?'Met':'Missed'];});
     return wrap('LOI tracker · Team Signed LOIs per Week',
-      `<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Target = ${d.team.headcount} Deal Analysts × 1 signed LOI per week. Exceptional: met every recent week · Target: missed up to 2 weeks in a row · Below target: missed more than 2 weeks in a row.</p>
+      `<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Target = ${d.team.headcount} Deal Analysts × 1 signed LOI per week, minus each analyst on approved leave for the whole week. Exceptional: the team target was met 3 or more weeks in a row · Target: met for the last 1-2 weeks in a row · Below target: missed for more than 2 weeks in a row (1-2 missed weeks in a row is Needs Attention).</p>
       ${sheetTable(['Status','Weeks missed in a row','Headcount','Weekly target'],[[liveEscape(status),streak,d.team.headcount,target]])}
       ${sheetTable(['Week of','Team signed LOIs','Target','Result'],rows)}
       ${d.unattributed.total?`<p style="font-size:12.5px;color:var(--tx3);margin:8px 0 0">${d.unattributed.total} signed LOI${d.unattributed.total===1?'':'s'} in this range could not be credited to a current Deal Analyst and are not in the team total.</p>`:''}`);
@@ -3065,17 +3077,19 @@ function signedLoiCard(person){
   const mk=(y,m)=>`${y}-${String(m+1).padStart(2,'0')}`;
   const t=new Date();const p1=new Date(t.getFullYear(),t.getMonth()-1,1),p2=new Date(t.getFullYear(),t.getMonth()-2,1);
   const m1=mk(p1.getFullYear(),p1.getMonth()),m2=mk(p2.getFullYear(),p2.getMonth());
-  const zeroTwoMonths=(analyst.monthly[m1]||0)===0&&(analyst.monthly[m2]||0)===0;
-  const lastWeek=lastDone?analyst.weekly[lastDone.i]:null;
+  /* a month spent entirely on approved leave is not scored, so "0 in 2 full months" needs both months to be counted months */
+  const zeroTwoMonths=!monthAway(analyst.bitrixId,m1)&&!monthAway(analyst.bitrixId,m2)&&(analyst.monthly[m1]||0)===0&&(analyst.monthly[m2]||0)===0;
+  const lastCounted=done.filter(x=>!weekAway(analyst.bitrixId,x.w)).pop();
+  const lastWeek=lastCounted?analyst.weekly[lastCounted.i]:null;
   const status=analyst.inRamp?`Not scored (ramp until ${analyst.rampEnd})`
     :zeroTwoMonths?'Below target (0 signed in the last 2 full months)'
     :lastWeek==null?(d.weeks.some(w=>w.inProgress)?'In progress':'No Data'):lastWeek>=2?'Exceptional':lastWeek>=1?'Target':'No signed LOI last week (not below target yet)';
   noteScore('Signed LOIs per Week',status);
-  noteSeries('Signed LOIs per Week','week',d.weeks.map((w,i)=>({label:loiShortDay(w.start),iso:w.start,text:analyst.inRamp?'No Data':w.inProgress?'In progress':loiWeekZone(analyst.weekly[i])})));
-  const rows=d.weeks.map((w,i)=>[liveEscape(loiShortDay(w.start))+(w.inProgress?' (in progress)':''),analyst.weekly[i],w.inProgress?'—':loiWeekZone(analyst.weekly[i])]);
+  noteSeries('Signed LOIs per Week','week',d.weeks.map((w,i)=>({label:loiShortDay(w.start),iso:w.start,text:analyst.inRamp?'No Data':w.inProgress?'In progress':weekAway(analyst.bitrixId,w)?'On leave':loiWeekZone(analyst.weekly[i])})));
+  const rows=d.weeks.map((w,i)=>[liveEscape(loiShortDay(w.start))+(w.inProgress?' (in progress)':''),analyst.weekly[i],w.inProgress?'—':weekAway(analyst.bitrixId,w)?'On leave':loiWeekZone(analyst.weekly[i])]);
   const months=Object.keys(analyst.monthly).sort().map(k=>[k,analyst.monthly[k]]);
   return wrap('LOI tracker · Signed LOIs per Week',
-    `<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Exceptional: 2 or more signed per week · Target: 1 or more · Below target: none for 2 consecutive months. First 45 days are Not scored${analyst.hireDate?` (started ${analyst.hireDate}, from ${liveEscape(analyst.hireDateSource)})`:' (no start date in Bitrix, so the ramp is not applied)'}.</p>
+    `<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Exceptional: 2 or more signed per week · Target: 1 or more · Below target: none for 2 consecutive months. Weeks or months spent entirely on approved leave are not scored. First 45 days are Not scored${analyst.hireDate?` (started ${analyst.hireDate}, from ${liveEscape(analyst.hireDateSource)})`:' (no start date in Bitrix, so the ramp is not applied)'}.</p>
     ${sheetTable(['Status','Signed in range','Last full week'],[[liveEscape(status),analyst.total,lastWeek==null?'—':lastWeek]])}
     ${sheetTable(['Week of','Signed LOIs','Zone'],rows)}
     ${months.length?`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">By month</summary>${sheetTable(['Month','Signed LOIs'],months)}</details>`:''}`);
@@ -3204,39 +3218,44 @@ function dealsPresentedCard(person){
   const a=d&&d.associates.find(x=>x.bitrixId===person.bitrixId);
   if(!a&&!(/^m&a associate$/i.test(person.bitrixTitle||'')))return '';
   const wrap=inner=>`<div class="sec"><div class="card cp"><div style="font-size:15px;font-weight:620">Bitrix deals · Deals Presented per Client per Week</div>${inner}
-    <p style="font-size:12.5px;color:var(--tx3);margin:10px 0 0">Source: Bitrix stage history. A deal counts in the week it moved straight from Video Presentation to Broker Intro Call, Seller Call, IOI Stage or LOI Stage, and is credited to the client's Responsible person. Clients counted are those with status Deal Flow.</p></div></div>`;
+    <p style="font-size:12.5px;color:var(--tx3);margin:10px 0 0">Source: Bitrix stage history. A deal is presented in the week of its Presented Date, and accepted when it moved straight from Video Presentation to Broker Intro Call, Seller Call, IOI Stage or LOI Stage. Deals auto-axed (partner did not respond) are not counted. Credit goes to the client's Responsible person. Clients counted are those with status Deal Flow.</p></div></div>`;
   if(!d)return wrap(`<p style="font-size:13.5px;color:var(--tx2)">${liveEscape(slowNote(L,'Deal movement has not loaded.'))}</p>`);
   if(!a)return wrap('<p style="font-size:13.5px;color:var(--tx2)">No Deal Flow clients have this person as their Responsible person in Bitrix.</p>');
   const weeks=d.weeks,doneIdx=weeks.map((w,i)=>i).filter(i=>!weeks[i].inProgress);
   const last=doneIdx[doneIdx.length-1];
   const weekly=a.clients.filter(c=>c.volume==='Normal'),monthly=a.clients.filter(c=>c.volume!=='Normal');
-  const need={Low:1,Medium:2};
-  const zero=i=>weekly.filter(c=>c.weekly[i]===0).length;
-  const zoneOf=i=>!weekly.length?'—':weekAway(a.bitrixId,weeks[i])?'On leave':zero(i)>0?'Below target':weekly.every(c=>c.weekly[i]>=2)?'Exceptional':'Target';
-  const monthNow=iso(TODAY).slice(0,7),monthPrev=d.months.filter(m=>m<monthNow).pop();
+  const wZone=(c,i)=>{const p=c.weekly[i],ac=c.weeklyAccepted[i];return p<2||ac<1?'Below target':ac>=3?'Exceptional':'Target';};
+  const below=i=>weekly.filter(c=>wZone(c,i)==='Below target').length;
+  const zoneOf=i=>!weekly.length?'—':weekAway(a.bitrixId,weeks[i])?'On leave':below(i)>0?'Below target':weekly.every(c=>wZone(c,i)==='Exceptional')?'Exceptional':'Target';
+  const monthNow=iso(TODAY).slice(0,7),monthPrev=d.months.filter(m=>m<monthNow).pop(),monthPrev2=d.months.filter(m=>m<monthPrev).pop();
+  const mZone=c=>{const p=c.monthly[monthPrev]||0,ac=c.monthlyAccepted[monthPrev]||0;
+    if(p>=2&&ac>=1)return ac>=2?'Exceptional':'Target';
+    if(monthPrev2&&p+(c.monthly[monthPrev2]||0)===0)return 'Below target';
+    return 'Not met (not below target yet)';};
   const weeklyZone=!weekly.length?null:last==null?(weeks.some(w=>w.inProgress)?'In progress':'No Data'):zoneOf(last);
-  const monthlyZone=!monthly.length?null:!monthPrev?'In progress':monthly.every(c=>(c.monthly[monthPrev]||0)>=need[c.volume])?'Target':'Below target';
+  const mzs=monthPrev?monthly.map(mZone):[];
+  const monthlyZone=!monthly.length?null:!monthPrev?'In progress':mzs.includes('Below target')?'Below target':mzs.some(z=>/not below/.test(z))?'Not met (not below target yet)':mzs.every(z=>z==='Exceptional')?'Exceptional':'Target';
   const parts=[weeklyZone,monthlyZone].filter(Boolean);
   const scored=parts.filter(x=>x!=='On leave'); /* a week spent entirely on approved leave is not scored */
-  const status=!parts.length?'No Data':!scored.length?'On leave':scored.includes('Below target')?'Below target':scored.includes('In progress')?'In progress':scored.includes('No Data')?'No Data':scored.includes('Target')?'Target':'Exceptional';
+  const status=!parts.length?'No Data':!scored.length?'On leave':scored.includes('Below target')?'Below target':scored.some(z=>/not below/.test(z))?'Not met (not below target yet)':scored.includes('In progress')?'In progress':scored.includes('No Data')?'No Data':scored.includes('Target')?'Target':'Exceptional';
   noteScore('Deals Presented per Client per Week',status);
   if(weekly.length)noteSeries('Deals Presented per Client per Week','week',weeks.map((w,i)=>({label:loiShortDay(w.start),iso:w.start,text:w.inProgress?'In progress':zoneOf(i)})));
   const wk=w=>liveEscape(loiShortDay(w.start))+(w.inProgress?'*':'');
   const link=(url,text)=>`<a class="srcl" href="${liveEscape(url)}" target="_blank" rel="noopener" data-src="1">${text} ${ic('link',11,2.2)}</a>`;
-  const summary=weeks.map((w,i)=>[wk(w),weekly.filter(c=>c.weekly[i]>=2).length,weekly.filter(c=>c.weekly[i]>=1).length,zero(i),w.inProgress?'In progress':zoneOf(i)]);
-  const clientRow=c=>[link(c.url,liveEscape(c.name)),liveEscape(c.volume)+(c.volumeSet?'':' (not set)'),...c.weekly,c.weekly.reduce((s,x)=>s+x,0)];
-  const monthRows=monthly.map(c=>{const n=(c.monthly[monthPrev]||0);return [link(c.url,liveEscape(c.name)),c.volume,need[c.volume],n,n>=need[c.volume]?'Met':'Not met',c.monthly[monthNow]||0];});
+  const summary=weeks.map((w,i)=>[wk(w),weekly.filter(c=>wZone(c,i)==='Exceptional').length,weekly.filter(c=>wZone(c,i)==='Target').length,below(i),w.inProgress?'In progress':zoneOf(i)]);
+  const clientRow=c=>[link(c.url,liveEscape(c.name)),liveEscape(c.volume)+(c.volumeSet?'':' (not set)'),...c.weekly.map((n,i)=>`${n} / ${c.weeklyAccepted[i]}`),`${c.weekly.reduce((s,x)=>s+x,0)} / ${c.weeklyAccepted.reduce((s,x)=>s+x,0)}`];
+  const monthRows=monthly.map(c=>[link(c.url,liveEscape(c.name)),c.volume,`${c.monthly[monthPrev]||0} / ${c.monthlyAccepted[monthPrev]||0}`,monthPrev?mZone(c):'—',`${c.monthly[monthNow]||0} / ${c.monthlyAccepted[monthNow]||0}`]);
   const allDeals=a.clients.flatMap(c=>c.deals.map(x=>({...x,client:c.name}))).sort((x,y)=>x.day<y.day?1:-1);
   const head=['Client','Volume',...weeks.map(wk),'Total'];
-  return wrap(`<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Exceptional: 2 or more presented deals per client per week · Target: at least 1 · Below target: a client with 0 deals presented in a week. A client with no Low or Medium volume set is a Normal volume client and is held to 1 per week; Low volume to 1 per month; Medium to 2 per month. * = week in progress.</p>
+  return wrap(`<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Normal volume clients, per week: Target = at least 1 accepted and at least 2 presented · Exceptional = 3 or more accepted · Below target = fewer than 2 presented or no accepted deal. Low volume clients, per month: Target = at least 1 accepted and 2 presented · Exceptional = 2 or more accepted · Below target = 0 presented in 2 months. A client with no volume set is Normal. Cells show presented / accepted. * = week in progress.</p>
     ${sheetTable(['Status','Deal Flow clients','Held to a weekly rule','Held to a monthly rule'],[[liveEscape(status),a.clients.length,weekly.length,monthly.length]])}
     ${weekly.length?`<div style="margin-top:12px;font-size:13.5px;font-weight:620">Weekly clients</div>
-      ${sheetTable(['Week of','Clients with 2 or more','Clients with 1 or more','Clients with 0','Zone'],summary)}
+      ${sheetTable(['Week of','Clients Exceptional','Clients on Target','Clients below target','Zone'],summary)}
       ${sheetTable(head,weekly.map(clientRow))}`:''}
-    ${monthly.length?`<div style="margin-top:12px;font-size:13.5px;font-weight:620">Low and Medium volume clients (monthly rule)</div>
-      ${sheetTable(['Client','Volume','Needed per month','Deals in '+(monthPrev||'last full month'),'Result','Deals so far in '+monthNow],monthRows)}`:''}
-    <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Deals counted (${allDeals.length})</summary>
-      ${allDeals.length?sheetTable(['Deal (opens in Bitrix)','Client','Moved on (ET)','Moved to'],allDeals.map(x=>[link(x.url,'Deal #'+liveEscape(x.id)),liveEscape(x.client),x.day,liveEscape(x.stage.replace(/_/g,' ').toLowerCase())])):'<p style="font-size:13px;color:var(--tx2)">None in this range.</p>'}</details>`);
+    ${monthly.length?`<div style="margin-top:12px;font-size:13.5px;font-weight:620">Low volume clients (monthly rule)</div>
+      ${sheetTable(['Client','Volume','Presented / accepted in '+(monthPrev||'last full month'),'Result','So far in '+monthNow],monthRows)}`:''}
+    <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Deals presented (${allDeals.length})</summary>
+      ${allDeals.length?sheetTable(['Deal (opens in Bitrix)','Client','Presented on','Accepted','Stage'],allDeals.map(x=>[link(x.url,'Deal #'+liveEscape(x.id)),liveEscape(x.client),x.day,x.accepted?'Yes':'No',liveEscape(String(x.stage).replace(/_/g,' ').toLowerCase())])):'<p style="font-size:13px;color:var(--tx2)">None in this range.</p>'}</details>`);
 }
 /* which KPI sources could not be read, so a failure is never shown as plain "No Data" */
 const KPI_LABELS={signedLois:'Signed LOIs',taskKpis:'Task KPIs',dealsPresented:'Deals Presented',dealQuality:'Deal Acceptance and Sourcing Quality',valuationOutput:'Valuation and Proposal output',teamHealth:'Team Sourcing Health',closing:'Closing Analysts',conversion:'LOI and Closing Conversion',teamLoiClosing:'Team LOI & Closing Health',onboarding:'Onboarding Calls',timeToFill:'Time to Fill',audits:'Audits'};
@@ -3478,12 +3497,13 @@ function teamHealthCard(person){
     <p style="font-size:12.5px;color:var(--tx3);margin:10px 0 0">Source: Bitrix stage history (times in ET).</p></div></div>`;
   if(!d)return wrap(`<p style="font-size:13.5px;color:var(--tx2)">${liveEscape(slowNote(L,'Team sourcing data has not loaded.'))}</p>`);
   const zone=share=>share==null?'—':share>=100?'Exceptional':share>=90?'Target':'Below target';
-  const done=d.months.filter(m=>!m.inProgress),last=done[done.length-1];
-  const curM=d.months.find(m=>m.inProgress);
+  const months=d.months.map(m=>thMonth(d,m));
+  const done=months.filter(m=>!m.inProgress),last=done[done.length-1];
+  const curM=months.find(m=>m.inProgress);
   const status=last?zone(last.share):curM?'In progress':'No Data';
   noteScore('Team Sourcing Health',last?status:curM?'In progress ('+curM.met+' of '+curM.headcount+' associates at baseline so far)':'No Data');
-  noteSeries('Team Sourcing Health','month',d.months.map(m=>({label:m.month,text:m.inProgress?'In progress':zone(m.share)})));
-  const rows=d.months.map(m=>[m.month+(m.inProgress?' (in progress)':''),m.headcount,m.met,m.share==null?'—':m.share+'%',m.inProgress?'In progress':zone(m.share),m.teamTotal,m.teamTarget]);
+  noteSeries('Team Sourcing Health','month',months.map(m=>({label:m.month,text:m.inProgress?'In progress':zone(m.share)})));
+  const rows=months.map(m=>[m.month+(m.inProgress?' (in progress)':''),m.headcount,m.met,m.share==null?'—':m.share+'%',m.inProgress?'In progress':zone(m.share),m.teamTotal,m.teamTarget]);
   const people=d.associates.slice().sort((a,b)=>(a.monthly[last?last.month:'']||0)-(b.monthly[last?last.month:'']||0));
   const lm=last?last.month:null;
   return wrap(`<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Share of M&A associates with at least ${d.baseline} accepted and presented deals in the month (a deal that moved straight from Video Presentation to Broker Intro Call, Seller Call, IOI Stage or LOI Stage). Exceptional: 100% of the team · Target: 90% or more · Below target: under 90%. Team target = headcount × ${d.baseline}. Low and medium volume clients are not treated differently, because the document does not say how.</p>
@@ -3503,14 +3523,17 @@ function closingCard(person){
   if(!a)return wrap('<p style="font-size:13.5px;color:var(--tx2)">This person is not on the roster for this KPI.</p>');
   const link=(url,text)=>`<a class="srcl" href="${liveEscape(url)}" target="_blank" rel="noopener" data-src="1">${text} ${ic('link',11,2.2)}</a>`;
   const zone=n=>n>=d.exceptional?'Exceptional':n>=d.target?'Target':'Below target';
-  const full=d.months.filter(m=>m<d.thisMonth),lm=full[full.length-1];
-  const status=a.belowTarget?'Below target (0 for '+a.zeroStreak+' months)':!lm?'In progress ('+(a.monthly[d.thisMonth]||0)+' so far this month)':a.monthly[lm]>=d.target?zone(a.monthly[lm]):'Zero last month ('+a.zeroStreak+' in a row)';
+  /* a month spent entirely on approved leave is not scored and does not extend or break the zero run */
+  const away=m=>monthAway(a.bitrixId,m),zoneOf=m=>away(m)?'On leave':zone(a.monthly[m]);
+  const full=d.months.filter(m=>m<d.thisMonth).filter(m=>!away(m)),lm=full[full.length-1];
+  let zs=0;for(let i=full.length-1;i>=0&&a.monthly[full[i]]===0;i--)zs++;
+  const status=zs>=3?'Below target (0 for '+zs+' months)':!lm?'In progress ('+(a.monthly[d.thisMonth]||0)+' so far this month)':a.monthly[lm]>=d.target?zone(a.monthly[lm]):'Zero last month ('+zs+' in a row)';
   noteScore('Signed Purchase Agreements per Month',status);
-  noteSeries('Signed Purchase Agreements per Month','month',d.months.map(m=>({label:m,text:m===d.thisMonth?'In progress':zone(a.monthly[m])})));
-  const monthRows=d.months.slice().reverse().map(m=>[m+(m===d.thisMonth?' (in progress)':''),a.monthly[m],m===d.thisMonth?'In progress':zone(a.monthly[m])]);
+  noteSeries('Signed Purchase Agreements per Month','month',d.months.map(m=>({label:m,text:m===d.thisMonth?'In progress':zoneOf(m)})));
+  const monthRows=d.months.slice().reverse().map(m=>[m+(m===d.thisMonth?' (in progress)':''),a.monthly[m],m===d.thisMonth?'In progress':zoneOf(m)]);
   const dealRows=a.deals.slice().reverse().map(x=>[link(x.url,'Deal #'+liveEscape(x.id)),liveEscape(x.day),x.stage==='LAST_PHASE'?'Still in Closing':liveEscape(x.stage.replace(/_/g,' ').toLowerCase())]);
   return wrap(`<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">A deal counts in the month it first moves into the Closing stage, credited to the Closing Analyst on the deal. Exceptional: ${d.exceptional} or more a month · Target: ${d.target} · Below target: 0 for ${d.belowStreak} or more consecutive full months with no pipeline justification (not automated: check the deals in Closing now).</p>
-    ${sheetTable(['Status (last full month)','Counted in range','In Closing now','Zero months in a row'],[[liveEscape(status),a.total,a.inClosingNow,a.zeroStreak]])}
+    ${sheetTable(['Status (last full month)','Counted in range','In Closing now','Zero months in a row'],[[liveEscape(status),a.total,a.inClosingNow,zs]])}
     ${sheetTable(['Month','Signed (entered Closing)','Zone'],monthRows)}
     <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Deals counted (${a.total})</summary>${a.deals.length?sheetTable(['Deal (opens in Bitrix)','Entered Closing (ET)','Now'],dealRows):'<p style="font-size:13px;color:var(--tx2)">None in this range.</p>'}</details>`);
 }
@@ -3553,16 +3576,17 @@ function teamLoiClosingCard(person){
     <p style="font-size:12.5px;color:var(--tx3);margin:10px 0 0">Source: Bitrix (times in ET).</p></div></div>`;
   if(!d)return wrap(`<p style="font-size:13.5px;color:var(--tx2)">${liveEscape(slowNote(L,'Team LOI and closing data has not loaded.'))}</p>`);
   const zone=share=>share==null?'—':share>=100?'Exceptional':share>=90?'Target':'Below target';
-  const done=d.months.filter(m=>!m.inProgress),last=done[done.length-1];
-  const curT=d.months.find(m=>m.inProgress);
+  const months=d.months.map(tlcMonth);
+  const done=months.filter(m=>!m.inProgress),last=done[done.length-1];
+  const curT=months.find(m=>m.inProgress);
   noteScore('Team LOI & Closing Health',last?zone(last.share):curT?'In progress ('+curT.met+' of '+curT.headcount+' at baseline so far)':'No Data');
-  noteSeries('Team LOI & Closing Health','month',d.months.map(m=>({label:m.month,text:m.inProgress?'In progress':zone(m.share)})));
-  const rows=d.months.slice().reverse().map(m=>[m.month+(m.inProgress?' (in progress)':''),m.headcount,m.met,m.share==null?'—':m.share+'%',m.inProgress?'In progress':zone(m.share)]);
+  noteSeries('Team LOI & Closing Health','month',months.map(m=>({label:m.month,text:m.inProgress?'In progress':zone(m.share)})));
+  const rows=months.slice().reverse().map(m=>[m.month+(m.inProgress?' (in progress)':''),m.headcount,m.met,m.share==null?'—':m.share+'%',m.inProgress?'In progress':zone(m.share)]);
   return wrap(`<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Share of the team (every Deal Analyst and Closing Analyst) at their own monthly baseline. Deal Analyst: ${d.loiPerMonth} signed LOIs a month (1 a week). Closing Analyst: ${d.closingPerMonth} deal entering Closing a month. Exceptional: 100% of the team · Target: 90% or more · Below target: under 90%. Anyone still in the 45-day ramp is left out of that month.</p>
     ${sheetTable(['Status (last full month)','Team size','At baseline','Share'],[[liveEscape(last?zone(last.share):'No Data'),last?last.headcount:'—',last?last.met:'—',last&&last.share!=null?last.share+'%':'—']])}
     ${sheetTable(['Month','Team size','At baseline','Share','Zone'],rows)}
-    ${d.months.slice().reverse().map(m=>`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Team members in ${liveEscape(m.month)}${m.inProgress?' (in progress)':''}</summary>
-      ${sheetTable(['Contractor','Role','Counted','Baseline','Result'],m.members.map(x=>[liveEscape(x.name),liveEscape(x.role),x.count,x.baseline,x.scored?(x.met?'Met':'Not met'):'In ramp, not scored']))}</details>`).join('')}`);
+    ${months.slice().reverse().map(m=>`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Team members in ${liveEscape(m.month)}${m.inProgress?' (in progress)':''}</summary>
+      ${sheetTable(['Contractor','Role','Counted','Baseline','Result'],m.members.map(x=>[liveEscape(x.name),liveEscape(x.role),x.count,x.baseline,x.scored?(x.met?'Met':'Not met'):x.away?'On leave all month, not scored':'In ramp, not scored']))}</details>`).join('')}`);
 }
 /* ---- Client Onboarding Calls per Month (Customer Success Manager) ---- */
 function onboardingCard(person){
@@ -3575,14 +3599,16 @@ function onboardingCard(person){
   if(!mine)return wrap('<p style="font-size:13.5px;color:var(--tx2)">This person is not on the roster for this KPI.</p>');
   const link=(url,text)=>`<a class="srcl" href="${liveEscape(url)}" target="_blank" rel="noopener" data-src="1">${text} ${ic('link',11,2.2)}</a>`;
   const zone=n=>n>=d.exceptional?'Exceptional':n>=d.target?'Target':'Below target';
-  const full=d.months.filter(m=>m<d.thisMonth),lm=full[full.length-1];
+  /* a month spent entirely on approved leave is not scored */
+  const away=m=>monthAway(mine.bitrixId,m),zoneOf=m=>away(m)?'On leave':zone(mine.monthly[m]);
+  const full=d.months.filter(m=>m<d.thisMonth).filter(m=>!away(m)),lm=full[full.length-1];
   const status=lm?zone(mine.monthly[lm]):'No Data';
   noteScore('Client Onboarding Calls per Month',lm?status:'No Data (in progress: '+(mine.monthly[d.thisMonth]||0)+' completed so far this month)');
-  noteSeries('Client Onboarding Calls per Month','month',d.months.map(m=>({label:m,text:m===d.thisMonth?'In progress':zone(mine.monthly[m])})));
+  noteSeries('Client Onboarding Calls per Month','month',d.months.map(m=>({label:m,text:m===d.thisMonth?'In progress':zoneOf(m)})));
   const ns=Object.entries(d.notScored).map(([n,c])=>n+' ('+c+')').join(', ');
   return wrap(`<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">A client counts in the month of the Onboarding Call Date when Onboarding Completed is ticked, credited to the Onboarded By value. Exceptional: ${d.exceptional} or more a month · Target: ${d.target} to ${d.exceptional-1} · Below target: under ${d.target}. Only the Customer Success Managers (Angela and Milica) are scored; Sergio is not mapped in Bitrix, so his calls are not scored${ns?': '+liveEscape(ns):''}.</p>
     ${sheetTable(['Status (last full month)','Completed calls (range)'],[[liveEscape(status),mine.total]])}
-    ${sheetTable(['Month','Completed onboarding calls','Zone'],d.months.slice().reverse().map(m=>[m+(m===d.thisMonth?' (in progress)':''),mine.monthly[m],m===d.thisMonth?'In progress':zone(mine.monthly[m])]))}
+    ${sheetTable(['Month','Completed onboarding calls','Zone'],d.months.slice().reverse().map(m=>[m+(m===d.thisMonth?' (in progress)':''),mine.monthly[m],m===d.thisMonth?'In progress':zoneOf(m)]))}
     <p style="font-size:12.5px;color:var(--tx3);margin:8px 0 0">In the range, ${d.notCompleted} clients have an Onboarding Call Date but Onboarding Completed is not ticked, and ${d.unattributed.total} completed ${d.unattributed.total===1?'call has':'calls have'} no Onboarded By. Neither counts for anyone until the fields are filled in.</p>
     <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Clients counted (${mine.total})</summary>${mine.clients.length?sheetTable(['Client (opens in Bitrix)','Call date'],mine.clients.map(x=>[link(x.url,liveEscape(x.name)),liveEscape(x.day)])):'<p style="font-size:13px;color:var(--tx2)">None in this range.</p>'}</details>
     ${d.unattributed.clients.length?`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Completed with no Onboarded By (${d.unattributed.total})</summary>${sheetTable(['Client (opens in Bitrix)','Call date'],d.unattributed.clients.map(x=>[link(x.url,liveEscape(x.name)),liveEscape(x.day)]))}</details>`:''}`);
@@ -3793,14 +3819,14 @@ function provDeals(person,days){
     const cells=days.map(day=>{const n=m.get(day)||0;if(n)return {s:'hit',tip:`${n} deal${n>1?'s':''} presented`};
       const away=leaveOn(person.bitrixId,day);if(away)return LEAVE(`On approved leave (${away}). Not scored.`);
       const wi=weekOf(day);
-      if(c.volume==='Normal'&&wi>=0&&!d.weeks[wi].inProgress&&c.weekly[wi]===0)return {s:'miss',tip:'No deal presented for this client in the whole week (the target is 1 a week)'};
+      if(c.volume==='Normal'&&wi>=0&&!d.weeks[wi].inProgress&&(c.weekly[wi]<2||c.weeklyAccepted[wi]<1))return {s:'miss',tip:`Week finished with ${c.weekly[wi]} presented and ${c.weeklyAccepted[wi]} accepted (target: 2 presented, 1 accepted)`};
       return NA(c.volume==='Normal'?'No deal today, and the week is not over or already has a deal':'No deal today (this client is held to a monthly rule)');});
     const n=sumOf(days,x=>m.get(x)||0);
     return {label:c.name,url:c.url,sub:c.volume==='Normal'?(c.volumeSet?'Normal':'Normal (not set)'):c.volume,cells,tot:String(n),n};
   });
   let of=0,hit=0;
-  d.weeks.forEach((w,i)=>{if(w.inProgress||w.end<days[0]||w.start>days[days.length-1]||weekAway(person.bitrixId,w))return;a.clients.filter(c=>c.volume==='Normal').forEach(c=>{of++;if(c.weekly[i]>=1)hit++;});});
-  return {kpi:'Deals Presented per Client per Week',rule:'Every Normal volume client should have at least 1 deal presented each week (Low: 1 a month, Medium: 2 a month). A green square is a day a deal was presented. A red square is a working day in a finished week where the client had no deal at all. A dot is a day with no deal in a week that is not over or already has one. The hit rate counts client-weeks with at least 1.',rowHead:'Client',missText:'a finished week where this client had no deal presented',naText:'no deal that day, but the week is not a miss',hitText:'a deal was presented that day',rows,totHead:'Deals presented',sums:[{h:'Clients',v:a.clients.length},{h:'Deals presented',v:sumOf(rows,r=>r.n)},{h:'Client-weeks at 0',v:of-hit}],hit,of};
+  d.weeks.forEach((w,i)=>{if(w.inProgress||w.end<days[0]||w.start>days[days.length-1]||weekAway(person.bitrixId,w))return;a.clients.filter(c=>c.volume==='Normal').forEach(c=>{of++;if(c.weekly[i]>=2&&c.weeklyAccepted[i]>=1)hit++;});});
+  return {kpi:'Deals Presented per Client per Week',rule:'Every Normal volume client should have at least 2 deals presented and at least 1 accepted each week (Low volume: the same per month). A green square is a day a deal was presented. A red square is a working day in a finished week where the client missed the target. A dot is a day with no deal in a week that is not over or already met. The hit rate counts client-weeks that met the target.',rowHead:'Client',missText:'a finished week where this client had fewer than 2 presented or no accepted deal',naText:'no deal that day, but the week is not a miss',hitText:'a deal was presented that day',rows,totHead:'Deals presented',sums:[{h:'Clients',v:a.clients.length},{h:'Deals presented',v:sumOf(rows,r=>r.n)},{h:'Client-weeks at 0',v:of-hit}],hit,of};
 }
 function provSigned(person,days){
   const d=DATA.signedLois&&DATA.signedLois.data;if(!d)return null;
@@ -3808,9 +3834,11 @@ function provSigned(person,days){
   if(!a&&!lead)return null;
   const daily=(a?a.daily:d.team.daily)||{};
   const weekly=a?a.weekly:d.team.weekly.map(w=>w.total),target=a?1:d.team.target;
-  const cells=days.map(day=>{const n=daily[day]||0;return n?{s:'hit',tip:`${n} signed LOI${n>1?'s':''}`}:NA('No signed LOI');});
+  const cells=days.map(day=>{const n=daily[day]||0;if(n)return {s:'hit',tip:`${n} signed LOI${n>1?'s':''}`};const away=a&&leaveOn(person.bitrixId,day);return away?LEAVE(`On approved leave (${away}). Not scored.`):NA('No signed LOI');});
   let of=0,hit=0;
-  d.weeks.forEach((w,i)=>{if(w.inProgress||w.end<days[0]||w.start>days[days.length-1])return;of++;if(weekly[i]>=target)hit++;});
+  d.weeks.forEach((w,i)=>{if(w.inProgress||w.end<days[0]||w.start>days[days.length-1])return;
+    if(a){if(weekAway(a.bitrixId,w))return;of++;if(weekly[i]>=target)hit++;return;}
+    const tg=loiTeamTarget(d,w);if(tg===0)return;of++;if(weekly[i]>=tg)hit++;});
   const n=sumOf(days,x=>daily[x]||0);
   return {kpi:a?'Signed LOIs per Week':'Team Signed LOIs per Week',rule:a?'At least 1 seller-signed LOI each week (Exceptional 2+). A green square is a day an LOI was signed; the hit rate counts completed weeks with at least 1.':`The team of ${d.team.headcount} Deal Analysts should sign ${target} LOIs a week. The hit rate counts completed weeks that met the target.`,rowHead:'Measure',rows:[{label:a?'Signed LOIs':'Team signed LOIs',cells,tot:String(n)}],totHead:'Signed',sums:[{h:'Signed LOIs',v:n},{h:'Weekly target',v:target}],hit,of};
 }
@@ -3878,9 +3906,9 @@ function provSourcing(person,days){
 function provTeamHealth(person,days){
   const d=DATA.teamHealth&&DATA.teamHealth.data;if(!d||!d.dealManagers.some(x=>x.bitrixId===person.bitrixId))return null;
   const dp=DATA.dealsPresented&&DATA.dealsPresented.data;const m=new Map();
-  if(dp)dp.associates.forEach(a=>a.clients.forEach(c=>c.deals.forEach(x=>m.set(x.day,(m.get(x.day)||0)+1))));
+  if(dp)dp.associates.forEach(a=>a.clients.forEach(c=>c.deals.filter(x=>x.accepted).forEach(x=>m.set(x.day,(m.get(x.day)||0)+1))));
   const cells=days.map(day=>{const n=m.get(day)||0;return n?{s:'hit',tip:`${n} accepted and presented deal${n>1?'s':''} across the team`}:NA('None');});
-  const last=d.months.filter(x=>!x.inProgress).pop();
+  const last=d.months.map(m=>thMonth(d,m)).filter(x=>!x.inProgress).pop();
   return {kpi:'Team Sourcing Health',rule:`Share of M&A associates with at least ${d.baseline} accepted and presented deals in the month. Exceptional 100% · Target 90% or more. Squares show team deals by day; the hit rate is associates at baseline in the last full month.`,rowHead:'Measure',rows:[{label:'Team accepted and presented deals',cells,tot:String(sumOf(days,x=>m.get(x)||0))}],totHead:'Deals',sums:[{h:'Team deals presented',v:sumOf(days,x=>m.get(x)||0)},{h:'Associates',v:last?last.headcount:'—'}],hit:last?last.met:null,of:last?last.headcount:null};
 }
 function provTeamLoiClosing(person,days){
@@ -3889,7 +3917,7 @@ function provTeamLoiClosing(person,days){
   const loi=(sl&&sl.team.daily)||{};const closing=new Map();
   if(cl)cl.analysts.forEach(a=>a.deals.forEach(x=>closing.set(x.day,(closing.get(x.day)||0)+1)));
   const mk=(label,get)=>({label,cells:days.map(day=>{const n=get(day);return n?{s:'hit',tip:`${n} ${label.toLowerCase()}`}:NA('None');}),tot:String(sumOf(days,get))});
-  const last=t&&t.months.filter(x=>!x.inProgress).pop();
+  const last=t&&t.months.map(tlcMonth).filter(x=>!x.inProgress).pop();
   return {kpi:'Team LOI & Closing Health',rule:'Share of the team (Deal Analysts and Closing Analysts) at their own monthly baseline: 4 signed LOIs, or 1 deal entering Closing. Exceptional 100% · Target 90% or more. Squares show team activity by day; the hit rate is team members at baseline in the last full month.',rowHead:'Measure',rows:[mk('Team signed LOIs',x=>loi[x]||0),mk('Deals entering Closing',x=>closing.get(x)||0)],totHead:'Total',sums:[{h:'Signed LOIs',v:sumOf(days,x=>loi[x]||0)},{h:'Entered Closing',v:sumOf(days,x=>closing.get(x)||0)}],hit:last?last.met:null,of:last?last.headcount:null};
 }
 function provConversion(person,days){
