@@ -3629,10 +3629,14 @@ function timeToFillCard(person){
     <p style="font-size:13.5px;color:var(--tx2);line-height:1.6">No applicant has a Filled Date yet. ${c.missingFilled} applicant${c.missingFilled===1?'':'s'} with an open date ${c.missingFilled===1?'is':'are'} waiting for a Filled Date (${Object.entries(c.awaiting).map(([k,v])=>v+' '+liveEscape(k)).join(', ')}), and ${c.withFilledDate} rows in the whole table have a Filled Date. Once the Filled Date is entered, this card calculates on the next refresh.</p>`);
   const types=Object.keys(d.zones);
   const lastFilled=d.months.filter(m=>!m.inProgress&&types.some(t=>m[t].filled)).pop();
-  noteScore('Time to Fill a Position',lastFilled?types.map(t=>lastFilled[t].zone).filter(Boolean).sort((a,b)=>SRANK[zoneKey(a)]-SRANK[zoneKey(b)])[0]:'No Data');
+  /* no finished month has a hire yet: the month in progress is shown as a provisional score ("so far") */
+  const worst=m=>types.map(t=>m[t].zone).filter(Boolean).sort((a,b)=>SRANK[zoneKey(a)]-SRANK[zoneKey(b)])[0];
+  const curFilled=d.months.filter(m=>m.inProgress&&types.some(t=>m[t].filled)).pop();
+  const tStatus=lastFilled?worst(lastFilled):curFilled?`${worst(curFilled)} (${curFilled.month} so far, provisional)`:'No Data';
+  noteScore('Time to Fill a Position',tStatus);
   noteSeries('Time to Fill a Position','month',d.months.map(m=>({label:m.month,text:m.inProgress?'In progress':types.some(t=>m[t].filled)?types.map(t=>m[t].zone).filter(Boolean).sort((a,b)=>SRANK[zoneKey(a)]-SRANK[zoneKey(b)])[0]:'No Data'})));
   const row=m=>[m.month+(m.inProgress?' (in progress)':''),...types.flatMap(t=>[m[t].filled,m[t].avgDays==null?'—':m[t].avgDays,m[t].zone||'—'])];
-  return wrap(`${intro}
+  return wrap(`<div style="font-size:15px;font-weight:620;margin-top:10px">KPI score: ${liveEscape(tStatus)}</div>${intro}
     ${sheetTable(['Month',...types.flatMap(t=>[t+' hires',t+' average days',t+' zone'])],d.months.slice().reverse().map(row))}
     <p style="font-size:12.5px;color:var(--tx3);margin:8px 0 0">${c.missingFilled} applicant${c.missingFilled===1?'':'s'} at Contract Signing, Onboarding or Hired with an open date ${c.missingFilled===1?'has':'have'} no Filled Date yet and ${c.missingFilled===1?'is':'are'} not counted.</p>
     <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Hires counted (${d.hires.length})</summary>
