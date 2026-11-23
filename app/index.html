@@ -570,11 +570,11 @@ const KPIS=[
  exp:'Roster-derived — headcount × 7 per week',tgt:42,exc:42,max:60,unit:'/wk',cadence:'Weekly',source:'Bitrix',
  bExc:'Weekly booking targets met or exceeded for the whole team',bTgt:'Targets missed for up to 2 consecutive weeks',bBelow:'Targets missed for more than 2 consecutive weeks',
  note:'Booked-but-no-show calls do not count. Archived — role not being tracked yet.',derived:true},
-{id:'seller_calls_attended',n:'Seller Calls Attended per Week',role:'M&A Coordinator',team:'Deal Ops',status:'archived',
- what:'Seller calls the coordinator actually attended.',
- exp:'6–7 per week',tgt:6,exc:8,max:12,unit:'/wk',cadence:'Weekly',source:'Bitrix',
- bExc:'8 or more attended seller calls a week',bTgt:'6–7 attended seller calls a week',bBelow:'5 or fewer attended seller calls a week',
- note:'Booked-but-no-show calls do not count. Archived — role not being tracked yet.'},
+{id:'seller_calls_attended',n:'Completed Booked Seller Calls per Week',role:'M&A Coordinator',team:'Deal Ops',status:'active',
+ what:'Booked seller calls the coordinator completed: the deal has been in the Seller Call stage, the coordinator is on its Coordinating Seller Call activity, and the Seller Call Completed Date is filled.',
+ exp:'4 per week',tgt:4,exc:5,max:10,unit:'/wk',cadence:'Weekly',source:'Bitrix',
+ bExc:'5 completed booked seller calls a week',bTgt:'4 completed booked seller calls a week',bBelow:'Fewer than 4 completed booked seller calls a week',
+ note:'Counted in the week of the Seller Call Completed Date.'},
 {id:'proposal_videos',n:'Proposal Videos per Day',role:'Deal Proposal Specialist',team:'Deal Ops',status:'active',
  what:'Accurate proposal videos (Looms) produced each day.',
  exp:'15–20 per day',tgt:15,exc:21,max:25,unit:'/day',cadence:'Daily',source:'Bitrix',
@@ -1035,7 +1035,7 @@ function h32(s){
 /* per-role wording; anything not listed falls back to the person's own KPI */
 const BOARDCFG={
  'M&A Associate'          :{row:'Assigned client',a:'Presented',b:'Accepted',rule:'At least 1 deal presented per client per week'},
- 'M&A Coordinator'        :{row:'Assigned client',a:'Calls attended',b:'Attended',rule:'6–7 seller calls attended per week'},
+ 'M&A Coordinator'        :{row:'Assigned client',a:'Calls completed',b:'Completed',rule:'4 completed booked seller calls per week'},
  'M&A Coordinators Team Lead':{row:'Coordinator',a:'Calls booked',b:'Attended',rule:'7 seller calls per coordinator per week'},
  'Deal Analyst'           :{row:'Assigned client',a:'LOIs signed',b:'Qualified',rule:'At least 1 signed LOI per week'},
  'LOI Team Lead'          :{row:'Analyst',a:'LOIs signed',b:'Qualified',rule:'1 signed LOI per analyst per week'},
@@ -1083,6 +1083,7 @@ const DATA={mode:'connecting',generatedAt:null,error:null,bitrix:{connected:fals
   taskKpis:{data:null,error:null},
   notionKpi:{improvements:null,audits:null,error:null},
   dealsPresented:{data:null,error:null,loading:false},
+  sellerCalls:{data:null,error:null,loading:false},
   dealQuality:{data:null,error:null,loading:false},
   valuationOutput:{data:null,error:null,loading:false},
   teamHealth:{data:null,error:null,loading:false},
@@ -3259,8 +3260,31 @@ function dealsPresentedCard(person){
     <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Deals presented (${allDeals.length})</summary>
       ${allDeals.length?sheetTable(['Deal (opens in Bitrix)','Client','Presented on','Accepted','Stage'],allDeals.map(x=>[link(x.url,'Deal #'+liveEscape(x.id)),liveEscape(x.client),x.day,x.accepted?'Yes':'No',liveEscape(String(x.stage).replace(/_/g,' ').toLowerCase())])):'<p style="font-size:13px;color:var(--tx2)">None in this range.</p>'}</details>`);
 }
+/* ---- Completed Booked Seller Calls per Week (M&A Coordinator) ---- */
+function sellerZone(n){return n>=5?'Exceptional':n>=4?'Target':'Below target';}
+function sellerCallsCard(person){
+  const L=DATA.sellerCalls,d=L&&L.data;
+  const a=d&&d.coordinators.find(x=>x.bitrixId===person.bitrixId);
+  if(!a&&!/^m&a coordinator$/i.test(person.bitrixTitle||''))return '';
+  const wrap=inner=>`<div class="sec"><div class="card cp"><div style="font-size:15px;font-weight:620">Bitrix deals · Completed Booked Seller Calls per Week · M&A Coordinator</div>${inner}
+    <p style="font-size:12.5px;color:var(--tx3);margin:10px 0 0">Source: Bitrix deals (Seller Call stage, Coordinating Seller Call activity and Seller Call Completed Date).</p></div></div>`;
+  if(!d)return wrap(`<p style="font-size:13.5px;color:var(--tx2)">${liveEscape(slowNote(L,'Seller call data has not loaded.'))}</p>`);
+  if(!a)return wrap('<p style="font-size:13.5px;color:var(--tx2)">This person is not on the roster for this KPI.</p>');
+  const weeks=d.weeks,counted=weeks.map((w,i)=>i).filter(i=>!weeks[i].inProgress&&!weekAway(a.bitrixId,weeks[i]));
+  const last=counted[counted.length-1];
+  const zoneAt=i=>weeks[i].inProgress?'In progress':weekAway(a.bitrixId,weeks[i])?'On leave':sellerZone(a.weekly[i]);
+  const status=last==null?(weeks.some(w=>w.inProgress)?'In progress':'No Data'):sellerZone(a.weekly[last]);
+  noteScore('Completed Booked Seller Calls per Week',status);
+  noteSeries('Completed Booked Seller Calls per Week','week',weeks.map((w,i)=>({label:loiShortDay(w.start),iso:w.start,text:zoneAt(i)})));
+  const link=(url,text)=>`<a class="srcl" href="${liveEscape(url)}" target="_blank" rel="noopener" data-src="1">${text} ${ic('link',11,2.2)}</a>`;
+  const rows=weeks.map((w,i)=>[liveEscape(loiShortDay(w.start))+(w.inProgress?' (in progress)':''),a.weekly[i],zoneAt(i)]);
+  return wrap(`<p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">A deal counts when it has been in the Seller Call stage, the M&A Coordinator is assigned to its Coordinating Seller Call activity, and its Seller Call Completed Date is filled. It is counted in the week of that date. Exceptional: 5 or more a week · Target: 4 · Below target: fewer than 4. A week spent entirely on approved leave is not scored.</p>
+    ${sheetTable(['Status (last full week)','Completed in range','Last full week'],[[liveEscape(status),a.total,last==null?'—':a.weekly[last]]])}
+    ${sheetTable(['Week of','Completed booked seller calls','Zone'],rows)}
+    <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">Deals counted (${a.total})</summary>${a.deals.length?sheetTable(['Deal (opens in Bitrix)','Seller Call Completed Date','Stage now'],a.deals.map(x=>[link(x.url,'Deal #'+liveEscape(x.id)),liveEscape(x.day),liveEscape(String(x.stage).replace(/_/g,' ').toLowerCase())])):'<p style="font-size:13px;color:var(--tx2)">None in this range.</p>'}</details>`);
+}
 /* which KPI sources could not be read, so a failure is never shown as plain "No Data" */
-const KPI_LABELS={signedLois:'Signed LOIs',taskKpis:'Task KPIs',dealsPresented:'Deals Presented',dealQuality:'Deal Acceptance and Sourcing Quality',valuationOutput:'Valuation and Proposal output',teamHealth:'Team Sourcing Health',closing:'Closing Analysts',conversion:'LOI and Closing Conversion',teamLoiClosing:'Team LOI & Closing Health',onboarding:'Onboarding Calls',timeToFill:'Time to Fill',audits:'Audits'};
+const KPI_LABELS={signedLois:'Signed LOIs',taskKpis:'Task KPIs',dealsPresented:'Deals Presented',sellerCalls:'Seller Calls',dealQuality:'Deal Acceptance and Sourcing Quality',valuationOutput:'Valuation and Proposal output',teamHealth:'Team Sourcing Health',closing:'Closing Analysts',conversion:'LOI and Closing Conversion',teamLoiClosing:'Team LOI & Closing Health',onboarding:'Onboarding Calls',timeToFill:'Time to Fill',audits:'Audits'};
 function kpiFailures(){return Object.keys(KPI_LABELS).filter(k=>DATA[k]&&DATA[k].error&&!DATA[k].loading);}
 function staleServerBanner(){
   return SERVER_WINDOWS?'':`<div class="sec"><div class="note w">${ic('warn',17,2)}<div><b>The server that is running is an older copy.</b> It does not understand the quarter picker, so the numbers on screen follow whatever window it was started with, not the quarter shown at the top. Stop it (Ctrl+C in its window), start it again, then reload this page.</div></div></div>`;
@@ -3320,7 +3344,7 @@ function winQs(force){
   if(WIN.explicit){parts.push('qfrom='+COUNT_FROM);parts.push('qto='+(COUNT_TO||''));}
   return parts.length?'?'+parts.join('&'):'';
 }
-const SLOW_KEYS=['dealsPresented','dealQuality','valuationOutput','teamHealth','closing','conversion','teamLoiClosing','onboarding','timeToFill','audits','leave'];
+const SLOW_KEYS=['dealsPresented','sellerCalls','dealQuality','valuationOutput','teamHealth','closing','conversion','teamLoiClosing','onboarding','timeToFill','audits','leave'];
 /* choose a quarter or year: every score is read again for that window */
 async function setWindow(label){
   if(!SERVER_WINDOWS){toast('The server is an older copy. Restart it to use the quarter picker.','warn');return;}
@@ -3355,6 +3379,7 @@ async function loadSlowKpis(force,seqArg){
   const q=winQs(force);
   const get=async url=>{for(let attempt=0;;attempt++){try{const r=await fetch(url,{cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.error||`Request failed: ${url}`);if(seq!==WIN_SEQ)return new Promise(()=>{});return d;}catch(e){if(seq!==WIN_SEQ)return new Promise(()=>{});if(attempt>=2||/must|limited/.test(e.message))throw e;await new Promise(r=>setTimeout(r,4000*(attempt+1)));}}};
   DATA.dealsPresented={data:DATA.dealsPresented.data,error:null,loading:true};
+  DATA.sellerCalls={data:DATA.sellerCalls.data,error:null,loading:true};
   DATA.dealQuality={data:DATA.dealQuality.data,error:null,loading:true};
   DATA.valuationOutput={data:DATA.valuationOutput.data,error:null,loading:true};
   DATA.teamHealth={data:DATA.teamHealth.data,error:null,loading:true};
@@ -3368,6 +3393,7 @@ async function loadSlowKpis(force,seqArg){
       .then(d=>{DATA.leave={data:d,error:null,loading:false};}).catch(e=>{DATA.leave={data:null,error:e.message,loading:false};})
       .then(()=>{if(seq===WIN_SEQ&&S.view==='status')render();}), /* System Status shows the answer straight away */
     get('/api/kpi/deals-presented'+q).then(d=>{DATA.dealsPresented={data:d,error:null,loading:false};}).catch(e=>{DATA.dealsPresented={data:null,error:e.message,loading:false};}),
+    get('/api/kpi/seller-calls'+q).then(d=>{DATA.sellerCalls={data:d,error:null,loading:false};}).catch(e=>{DATA.sellerCalls={data:null,error:e.message,loading:false};}),
     get('/api/kpi/deal-quality'+q).then(d=>{DATA.dealQuality={data:d,error:null,loading:false};}).catch(e=>{DATA.dealQuality={data:null,error:e.message,loading:false};}),
     get('/api/kpi/valuation-output'+q).then(d=>{DATA.valuationOutput={data:d,error:null,loading:false};}).catch(e=>{DATA.valuationOutput={data:null,error:e.message,loading:false};}),
     get('/api/kpi/team-sourcing-health'+q).then(d=>{DATA.teamHealth={data:d,error:null,loading:false};}).catch(e=>{DATA.teamHealth={data:null,error:e.message,loading:false};}),
@@ -3660,7 +3686,7 @@ function auditsCard(person){
 }
 /* every card for a person, in page order; each card reports its result through noteScore() */
 function cardsFor(person){
-  return `${dealOpsCard(person)}${signedLoiCard(person)}${taskKpiCard(person)}${notionKpiCard(person)}${dealsPresentedCard(person)}${dealQualityCards(person)}${valuationOutputCard(person)}${teamHealthCard(person)}${closingCard(person)}${conversionCard(person)}${teamLoiClosingCard(person)}${onboardingCard(person)}${timeToFillCard(person)}${auditsCard(person)}`;
+  return `${dealOpsCard(person)}${signedLoiCard(person)}${taskKpiCard(person)}${notionKpiCard(person)}${dealsPresentedCard(person)}${sellerCallsCard(person)}${dealQualityCards(person)}${valuationOutputCard(person)}${teamHealthCard(person)}${closingCard(person)}${conversionCard(person)}${teamLoiClosingCard(person)}${onboardingCard(person)}${timeToFillCard(person)}${auditsCard(person)}`;
 }
 /* work out every contractor's score once, so the overview, team cards, People list and Needs Attention can use them */
 function computeAllScores(){
@@ -3678,7 +3704,7 @@ function scoreCounts(list){
   list.forEach(p=>{c[p.s||'nodata']++;});
   return c;
 }
-function slowStillLoading(){return ['dealsPresented','dealQuality','valuationOutput','teamHealth','closing','conversion','teamLoiClosing','onboarding','timeToFill','audits','leave'].some(k=>DATA[k]&&DATA[k].loading);}
+function slowStillLoading(){return ['dealsPresented','sellerCalls','dealQuality','valuationOutput','teamHealth','closing','conversion','teamLoiClosing','onboarding','timeToFill','audits','leave'].some(k=>DATA[k]&&DATA[k].loading);}
 /* ---- Board: people in one job title, one square per week or month ---- */
 /* Board order: worst to excellent (default), excellent to worst, or by name. Ties are broken by hit rate, then name. */
 const BOARD_SORTS={worst:'Worst to excellent',best:'Excellent to worst',name:'Name A–Z'};
@@ -3834,6 +3860,15 @@ function provDeals(person,days){
   d.weeks.forEach((w,i)=>{if(w.inProgress||w.end<days[0]||w.start>days[days.length-1]||weekAway(person.bitrixId,w))return;a.clients.filter(c=>c.volume==='Normal').forEach(c=>{of++;if(c.weekly[i]>=2&&c.weeklyAccepted[i]>=1)hit++;});});
   return {kpi:'Deals Presented per Client per Week',rule:'Every Normal volume client should have at least 2 deals presented and at least 1 accepted each week (Low volume: the same per month). A green square is a day a deal was presented. A red square is a working day in a finished week where the client missed the target. A dot is a day with no deal in a week that is not over or already met. The hit rate counts client-weeks that met the target.',rowHead:'Client',missText:'a finished week where this client had fewer than 2 presented or no accepted deal',naText:'no deal that day, but the week is not a miss',hitText:'a deal was presented that day',rows,totHead:'Deals presented',sums:[{h:'Clients',v:a.clients.length},{h:'Deals presented',v:sumOf(rows,r=>r.n)},{h:'Client-weeks at 0',v:of-hit}],hit,of};
 }
+function provSellerCalls(person,days){
+  const d=DATA.sellerCalls&&DATA.sellerCalls.data;const a=d&&d.coordinators.find(x=>x.bitrixId===person.bitrixId);if(!a)return null;
+  const m=new Map();a.deals.forEach(x=>m.set(x.day,(m.get(x.day)||0)+1));
+  const cells=days.map(day=>{const n=m.get(day)||0;if(n)return {s:'hit',tip:`${n} completed booked seller call${n>1?'s':''}`};const away=leaveOn(person.bitrixId,day);return away?LEAVE(`On approved leave (${away}). Not scored.`):NA('None that day');});
+  let of=0,hit=0;
+  d.weeks.forEach((w,i)=>{if(w.inProgress||w.end<days[0]||w.start>days[days.length-1]||weekAway(a.bitrixId,w))return;of++;if(a.weekly[i]>=4)hit++;});
+  const n=sumOf(days,x=>m.get(x)||0);
+  return {kpi:'Completed Booked Seller Calls per Week',rule:'At least 4 completed booked seller calls a week (Exceptional 5+). A green square is a day a call was completed; the hit rate counts finished weeks with 4 or more.',rowHead:'Measure',rows:[{label:'Completed booked seller calls',cells,tot:String(n)}],totHead:'Completed',sums:[{h:'Completed',v:n},{h:'Weekly target',v:4}],hit,of};
+}
 function provSigned(person,days){
   const d=DATA.signedLois&&DATA.signedLois.data;if(!d)return null;
   const a=d.analysts.find(x=>x.bitrixId===person.bitrixId),lead=d.leads.some(l=>l.bitrixId===person.bitrixId);
@@ -3950,7 +3985,7 @@ function provAudits(person,days){
   return {kpi:'Audits Completed',rule:'An audit is completed in its cycle when Date Submitted is on or before its Deadline. Only audits that have a Deadline can be judged. Both Auditing Specialists share one result.',rowHead:'Measure',rows:[{label:'Audits submitted',cells,tot:`${on} of ${items.length}`}],totHead:'On time',sums:[{h:'Audits judged',v:items.length},{h:'On time',v:on}],hit:on,of:items.length};
 }
 function boardProvider(person,days){
-  for(const f of [provTasks,provValuation,provDeals,provSigned,provSheet,provClosing,provOnboarding,provImprovements,provAcceptance,provSourcing,provTeamHealth,provTeamLoiClosing,provConversion,provTimeToFill,provAudits]){const r=f(person,days);if(r)return r;}
+  for(const f of [provTasks,provValuation,provDeals,provSellerCalls,provSigned,provSheet,provClosing,provOnboarding,provImprovements,provAcceptance,provSourcing,provTeamHealth,provTeamLoiClosing,provConversion,provTimeToFill,provAudits]){const r=f(person,days);if(r)return r;}
   return null;
 }
 function dayCols(days){

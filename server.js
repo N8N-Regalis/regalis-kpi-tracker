@@ -11,6 +11,7 @@ const sheets = require('./integrations/sheets');
 const { signedLois } = require('./integrations/signedLois');
 const { taskKpis } = require('./integrations/taskKpis');
 const { dealsPresented } = require('./integrations/dealsPresented');
+const { sellerCalls } = require('./integrations/sellerCalls');
 const { dealQuality } = require('./integrations/dealQuality');
 const { valuationOutput } = require('./integrations/valuationOutput');
 const { holidayList } = require('./integrations/holidays');
@@ -297,6 +298,19 @@ app.get('/api/kpi/deals-presented', async (req, res) => {
   try {
     const { from, to } = req.query;
     res.json(await dealsPresented({
+      from: typeof from === 'string' ? from : undefined,
+      to: typeof to === 'string' ? to : undefined,
+      force: req.query.refresh === '1'
+    }));
+  } catch (error) {
+    res.status(error.message.includes('must') || error.message.includes('limited') ? 400 : 502).json({ error: error.message });
+  }
+});
+
+app.get('/api/kpi/seller-calls', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    res.json(await sellerCalls({
       from: typeof from === 'string' ? from : undefined,
       to: typeof to === 'string' ? to : undefined,
       force: req.query.refresh === '1'
