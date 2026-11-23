@@ -3099,16 +3099,16 @@ function taskStamp(v){return v?new Date(v).toLocaleString('en-US',{timeZone:'Ame
 function taskList(label,flagged){
   if(!flagged||!flagged.length)return '';
   const rows=flagged.map(f=>[`<a class="srcl" href="${liveEscape(f.url)}" target="_blank" rel="noopener" data-src="1">#${liveEscape(f.id)} ${liveEscape(f.title)} ${ic('link',11,2.2)}</a>`,
-    liveEscape(f.reason),taskStamp(f.deadline),taskStamp(f.closed),f.hours==null?'—':f.hours+' h',f.comments]);
+    liveEscape(f.reason),taskStamp(f.deadline),taskStamp(f.closed),f.hours==null?'—':f.hours+' h']);
   return `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--tx2)">${label} (${flagged.length})</summary>
-    ${sheetTable(['Task (opens in Bitrix)','Why','Deadline (ET)','Closed (ET)','Late by','Comments'],rows)}</details>`;
+    ${sheetTable(['Task (opens in Bitrix)','Why','Deadline (ET)','Closed (ET)','Late by'],rows)}</details>`;
 }
 function taskKpiCard(person){
   const T=DATA.taskKpis;
   const d=T&&T.data;
   const mine=d?d.kpis.map(k=>({k,p:k.people.find(x=>x.bitrixId===person.bitrixId)})).filter(x=>x.p):[];
   if(!mine.length)return '';
-  const note=`<p style="font-size:12.5px;color:var(--tx3);margin:10px 0 0">Source: Bitrix Tasks, credited to the responsible person on each task (times in ET). Not automated: accuracy of the work, "ahead of deadline" consistency, approved carry-over reasons beyond the comment count, and deadline adjustments. Working days are Monday to Friday, skipping US holidays.</p>`;
+  const note=`<p style="font-size:12.5px;color:var(--tx3);margin:10px 0 0">Source: Bitrix Tasks, credited to the responsible person on each task (times in ET). Not automated: accuracy of the work, "ahead of deadline" consistency, approved carry-over reasons, and deadline adjustments. Working days are Monday to Friday, skipping US holidays.</p>`;
   const wk=w=>liveEscape(loiShortDay(w.start))+(w.inProgress?' (in progress)':'');
   const inProg=new Set(d.weeks.filter(w=>w.inProgress).map(w=>w.start));
   const blocks=mine.map(({k,p})=>{
@@ -3152,18 +3152,20 @@ function taskKpiCard(person){
         ${taskList('Late tasks',p.flagged)}`;
     }
     if(k.kind==='daily'){
-      const unexplained=t.carried-t.carriedWithComments;
+      /* Rate rule (decided 2026-11-23, comments are not read): Target = 95% or more of the judged tasks (done + carried over) finished within 2 business days; Below target = under 95%. */
+      const MIN_RATE=95;
+      const judgedOf=x=>x.within+x.carried,pctOf=x=>judgedOf(x)?x.within/judgedOf(x)*100:null;
       /* Exceptional: every task finished the same day it was created (a task created today and still open does not break it) and nothing carried over.
          "Accurate" cannot be read from Bitrix and is not checked. */
       const allSameDay=x=>x.assigned>0&&x.sameDay>0&&x.sameDay+x.openToday===x.assigned&&x.carried===0;
-      const status=!t.assigned?'No Data':unexplained>0?'Below target (carried past 2 business days with no comment)':allSameDay(t)?'Exceptional (every task finished the same day it was created)':'Target (nothing carried past 2 business days without a comment)';
+      const status=!t.assigned?'No Data':pctOf(t)==null?'In progress':pctOf(t)<MIN_RATE?'Below target (under '+MIN_RATE+'% finished within 2 business days)':allSameDay(t)?'Exceptional (every task finished the same day it was created)':'Target ('+MIN_RATE+'% or more finished within 2 business days)';
       noteScore(k.name,status);
-      noteSeries(k.name,'week',p.weekly.map(x=>({label:loiShortDay(x.start),iso:x.start,text:inProg.has(x.start)?'In progress':!x.assigned?'No Data':(x.carried-x.carriedWithComments)>0?'Below target':allSameDay(x)?'Exceptional':'Target'})));
-      const rowOf=x=>[x.assigned,x.within,x.sameDay,x.carried,x.carriedWithComments,x.rate==null?'—':x.rate+'%'];
+      noteSeries(k.name,'week',p.weekly.map(x=>({label:loiShortDay(x.start),iso:x.start,text:inProg.has(x.start)?'In progress':!x.assigned?'No Data':pctOf(x)==null?'In progress':pctOf(x)<MIN_RATE?'Below target':allSameDay(x)?'Exceptional':'Target'})));
+      const rowOf=x=>[x.assigned,x.within,x.sameDay,x.carried,x.rate==null?'—':x.rate+'%'];
       return `<div style="margin-top:14px;font-size:13.5px;font-weight:620">${liveEscape(k.name)}</div>
-        <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Tasks created in the range and finished within 2 business days. A task counts for the responsible person and for every participant on it. Carry-overs with at least one comment are shown as "with comments" for review. Exceptional: every task finished the same day it was created, with nothing carried over (a task created today that is still open does not count against it). Whether the work was accurate is not checked automatically.</p>
-        ${sheetTable(['Status','Tasks','Done within 2 business days','Done the same day','Carried over','…of which with comments','Within-window %'],[[liveEscape(status),...rowOf(t).slice(0,1),...rowOf(t).slice(1)]])}
-        ${sheetTable(['Week of','Tasks','Within 2 days','Same day','Carried over','With comments','Within-window %'],p.weekly.map(x=>[wk(x),...rowOf(x)]))}
+        <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">Tasks created in the range and finished within 2 business days. A task counts for the responsible person and for every participant on it. Tasks still open and inside the 2 days are not judged yet. Exceptional: every task finished the same day it was created, with nothing carried over (a task created today that is still open does not count against it) · Target: 95% or more of the judged tasks finished within 2 business days · Below target: under 95%. Comments on tasks are not read. Whether the work was accurate is not checked automatically.</p>
+        ${sheetTable(['Status','Tasks','Done within 2 business days','Done the same day','Carried over','Within-window %'],[[liveEscape(status),...rowOf(t)]])}
+        ${sheetTable(['Week of','Tasks','Within 2 days','Same day','Carried over','Within-window %'],p.weekly.map(x=>[wk(x),...rowOf(x)]))}
         ${taskList('Carried-over tasks',p.flagged)}`;
     }
     const zone=a=>a==null?'—':a<=5?'Exceptional':a<=10?'Target':'Below target';
@@ -3780,9 +3782,9 @@ function provTasks(person,days){
       return {kpi:k.name,rule:monthRule?'Tasks due that day, done on or before their deadline. A day is met when every task due that day was on time. The status is judged on a whole month: Target 98–100% on time, Below target under 98%.':'Tasks due that day, done on or before their deadline. Target: 100% on time.',rowHead:'Measure',rows:[{label:'Tasks due',cells,tot:`${on} of ${due}`}],totHead:'On time',sums:[{h:'Tasks due',v:due},{h:'On time',v:on}],hit:on,of:due};
     }
     if(k.kind==='daily'){
-      const cells=days.map(day=>{const e=m.get(day);return !e||!e.assigned?NA('No tasks created'):{s:(e.carried-e.carriedWithComments)>0?'miss':'hit',tip:`${e.within} of ${e.assigned} tasks finished within 2 business days${e.carried?` · ${e.carried} carried over (${e.carriedWithComments} with comments)`:''}`};});
+      const cells=days.map(day=>{const e=m.get(day);return !e||!e.assigned?NA('No tasks created'):{s:e.within+e.carried>0&&e.within/(e.within+e.carried)*100<95?'miss':'hit',tip:`${e.within} of ${e.assigned} tasks finished within 2 business days${e.carried?` · ${e.carried} carried over`:''}`};});
       const as=sumOf(days,x=>(m.get(x)||{}).assigned||0),wi=sumOf(days,x=>(m.get(x)||{}).within||0);
-      return {kpi:k.name,rule:'Tasks created that day, finished within 2 business days. A carry-over with no comment is a miss.',rowHead:'Measure',rows:[{label:'Tasks created',cells,tot:`${wi} of ${as}`}],totHead:'Within 2 days',sums:[{h:'Tasks created',v:as},{h:'Within 2 days',v:wi}],hit:wi,of:as};
+      return {kpi:k.name,rule:'Tasks created that day, finished within 2 business days. A day is a miss when under 95% of its judged tasks (done + carried over) were finished within 2 business days.',rowHead:'Measure',rows:[{label:'Tasks created',cells,tot:`${wi} of ${as}`}],totHead:'Within 2 days',sums:[{h:'Tasks created',v:as},{h:'Within 2 days',v:wi}],hit:wi,of:as};
     }
     const cells=days.map(day=>{const e=m.get(day);return !e||!e.closed?NA('Nothing completed'):{s:e.avgDays<=10?'hit':'miss',tip:`${e.closed} completed · average ${e.avgDays} working days`};});
     const done=sumOf(days,x=>(m.get(x)||{}).closed||0),tot=sumOf(days,x=>((m.get(x)||{}).avgDays||0)*((m.get(x)||{}).closed||0));

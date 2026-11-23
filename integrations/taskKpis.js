@@ -7,7 +7,7 @@ const { reportToday } = config;
 /* Bitrix Tasks KPIs from the Score Card Mapping document:
    - Automation Tasks On Time (KPI 9), Audit Tasks On Time (KPI 12), HR Tasks Turnaround (KPI 16): on-time rate against each task's deadline
    - Days to Deploy an Automation (KPI 10): working days from task created to task completed
-   - Daily Tasks Completed (KPI 11): share of tasks completed within 2 business days, carry-overs checked against comments
+   - Daily Tasks Completed (KPI 11): share of tasks completed within 2 business days, Target 95% or more within the window (comments are not read, Bitrix does not expose them)
    Credit goes to the task's responsible person, matched to the role by their Bitrix job title.
    Operations Associates (Daily Tasks Completed) are also credited for tasks where they are a participant (co-executor). */
 const TIME_ZONE = 'America/New_York';
@@ -207,7 +207,7 @@ async function calculate({ from, to }) {
       'Credit goes to the responsible person on each Bitrix task. Roles are matched by Bitrix job title. Operations Associates are also credited for tasks where they are a participant.',
       'Daily Tasks Completed: a task created on a day the person is on approved leave (OOO Tracker) is not scored, and leave days do not count toward the 2-business-day window.',
       'Working days count Monday to Friday in ET, skipping US holidays.',
-      'Not automated: whether work was accurate, "ahead of deadline" consistency, approved carry-over reasons beyond the comment count, and deadline adjustments made for the stage or team a task is waiting on.'
+      'Not automated: whether work was accurate, "ahead of deadline" consistency, approved carry-over reasons, and deadline adjustments made for the stage or team a task is waiting on.'
     ]
   };
 }
