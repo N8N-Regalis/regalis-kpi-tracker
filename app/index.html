@@ -3487,11 +3487,14 @@ function valuationOutputCard(person){
     const lastAny=allDaily.filter(x=>x.day<today).slice(-1)[0],away=Boolean(lastAny&&lv(lastAny.day));
     const leaveN=allDaily.length-daily.length;
     const pending=allDaily.some(x=>x.day>=today)?'In progress':'No Data';
-    noteScore(g.name,away?'On leave':last?zone(last.built):pending);
     const byWeek=new Map();
     allDaily.forEach(x=>{const w=mondayOfDay(x.day);const e=byWeek.get(w)||{days:0,leave:0,met:0,gap:0,built:0,high:0,inProg:false};if(x.day>=today)e.inProg=true;
       if(lv(x.day)){e.leave++;byWeek.set(w,e);return;}
       e.days++;e.built+=x.built;if(x.state==='met')e.met++;if(x.state==='gap')e.gap++;if(x.built>=g.exceptional)e.high++;byWeek.set(w,e);});
+    /* on leave now: show the result of the last finished week they worked instead of No Data */
+    const lastWeek=[...byWeek.entries()].filter(([w,e])=>!e.inProg&&e.days).pop();
+    const weekZone=e=>e.built/e.days>=g.exceptional?'Exceptional':e.built/e.days>=g.floor?'Target':'Below target';
+    noteScore(g.name,away?(lastWeek?`${weekZone(lastWeek[1])} (week of ${loiShortDay(lastWeek[0])}, the last week worked; on leave now)`:'On leave'):last?zone(last.built):pending);
     noteSeries(g.name,'week',[...byWeek.entries()].map(([w,e])=>({label:loiShortDay(w),iso:w,text:e.inProg?'In progress':!e.days?(e.leave?'On leave':'No Data'):e.built/e.days>=g.exceptional?'Exceptional':e.built/e.days>=g.floor?'Target':'Below target'})));
     const weekRows=[...byWeek.entries()].map(([w,e])=>[liveEscape(loiShortDay(w))+(e.inProg?'*':''),e.days+(e.leave?` (${e.leave} on leave)`:''),e.met,e.gap,e.days?Math.round(e.built/e.days*10)/10:'—',e.built,
       k==='videos'?(e.high>=4?'Yes (4+ days at '+g.exceptional+'+)':'No'):'—']);
@@ -3501,7 +3504,7 @@ function valuationOutputCard(person){
       models:'Deals moved out of Valuation Modeling to Valuation Model For Review or Axed, credited to the Financial Analyst the Valuation Modeling activity is assigned to. Deals sent back to the M&A Associate or to Action Required are not counted'+(p.notCounted!=null?` (${p.notCounted} in this range)`:'')+'. Exceptional: 30 or more a day · Target: 20 or more · Below target: under 20.',
       videos:'"Video Presentation" activities marked done, credited to the Proposal Specialist they are assigned to. Exceptional: 21 or more a day for 4 or more days in a week · Target: 15 to 20 · Below target: under 15.'}[k];
     return `<div style="margin-top:14px;font-size:13.5px;font-weight:620">${liveEscape(g.name)}</div>
-      <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">${intro} A day below ${g.goal} is a KPI gap only when work was left unfinished (more arrived by 4 PM than was done). If everything that arrived was done, it shows Low volume.${leaveN?` ${leaveN} working day${leaveN===1?'':'s'} in this range ${leaveN===1?'is':'are'} on approved leave (OOO Tracker) and not scored.`:''}${away?' This person is on leave now, so the score shows On leave (No Data) until they are back. The table below shows the last day they worked.':''}</p>
+      <p style="font-size:12.5px;color:var(--tx3);margin:4px 0 0">${intro} A day below ${g.goal} is a KPI gap only when work was left unfinished (more arrived by 4 PM than was done). If everything that arrived was done, it shows Low volume.${leaveN?` ${leaveN} working day${leaveN===1?'':'s'} in this range ${leaveN===1?'is':'are'} on approved leave (OOO Tracker) and not scored.`:''}${away?' This person is on leave now, so the score shows the result of the last finished week they worked until they are back. The table below shows the last day they worked.':''}</p>
       ${sheetTable([away?'Last day worked':'Last full working day','Done','Arrived by 4 PM','Zone','Result','Average per day (range)'],
         [last?[liveEscape(loiShortDay(last.day)),last.built,last.arrived,zone(last.built),result(last),daily.length?Math.round(total/daily.length*10)/10:'—']:['—','—','—',away?'On leave':pending,'—','—']])}
       ${sheetTable(['Week of','Working days','Days at or above '+g.goal,'KPI gap days','Average per day','Total',k==='videos'?'Sustained Exceptional week':'—'],weekRows)}
