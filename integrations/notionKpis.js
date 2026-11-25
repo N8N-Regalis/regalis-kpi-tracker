@@ -12,8 +12,14 @@ const dayOf = value => (value && value.start ? String(value.start).slice(0, 10) 
 const round1 = n => Math.round(n * 10) / 10;
 
 /* ---------- Time to Fill a Position ---------- */
-const MANAGER_ROLE = /\b(manager|team lead|lead|director|head)\b/i;
-const roleType = positions => ((positions || []).some(position => MANAGER_ROLE.test(position)) ? 'Team Lead/Manager' : 'Contractor');
+/* Role type by position, from the list the team confirmed. Notion spells some positions differently from Bitrix, so those spellings are listed too.
+   A position on neither list falls back to the word rule (Manager, Lead, Director or Head means Team Lead/Manager). */
+const norm = text => String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+const CONTRACTOR_ROLES = new Set(['automations engineer', 'closing analyst', 'coordinator lead', 'deal analyst', 'financial analyst', 'm&a associate', 'm&a associates', 'm&a coordinator', 'operations associate', 'proposal specialist', 'deal proposal specialist', 'talent assistant'].map(norm));
+const MANAGER_ROLES = new Set(['assistant deal execution manager', 'assistant execution deal manager', 'assistant deal manager', 'assistant operations manager', 'customer success manager', 'deal execution manager', 'deal maker', 'assistant deal maker', 'deal manager', 'deal operations assistant', 'deal operations lead', 'deal sourcing lead', 'loi lead', 'loi team lead', 'operations manager', 'talent administrator', 'valuation team lead'].map(norm));
+const MANAGER_WORDS = /\b(manager|team lead|lead|director|head)\b/i;
+const roleOf = position => (MANAGER_ROLES.has(norm(position)) ? 'Team Lead/Manager' : CONTRACTOR_ROLES.has(norm(position)) ? 'Contractor' : MANAGER_WORDS.test(position) ? 'Team Lead/Manager' : 'Contractor');
+const roleType = positions => ((positions || []).some(position => roleOf(position) === 'Team Lead/Manager') ? 'Team Lead/Manager' : 'Contractor');
 /* A row counts once it has a Filled Date, whatever its status. Rows that were turned down or dropped out never count. */
 const DROPPED = new Set(['Rejected', 'FOR REJECTION EMAIL', 'Withdrew', 'Declined Offer', 'Blacklisted']);
 /* Statuses where the person has accepted and the Filled Date is expected to be entered next */
@@ -60,7 +66,7 @@ async function timeToFill() {
       'Calendar days from Position Open Date to Filled Date, counted in the month of the Filled Date. A row counts as soon as it has a Filled Date, whatever its status, except Rejected, For Rejection Email, Withdrew, Declined Offer and Blacklisted.',
       'Rows with text in Time to Fill Exclusion are left out.',
       'Counting starts on 1 October 2026: hires with a Filled Date before that day are not counted.',
-      'Role type: a position whose name contains Manager, Lead, Director or Head is Team Lead/Manager; every other position is Contractor.',
+      'Role type comes from the confirmed list of positions (for example Deal Analyst, M&A Associate and Closing Analyst are Contractor; Assistant Deal Manager, Deal Maker and LOI Lead are Team Lead/Manager). A position not on the list is Team Lead/Manager if its name contains Manager, Lead, Director or Head, otherwise Contractor.',
       'Exceptional: Contractor 14 days or fewer, Team Lead/Manager 30 or fewer · Target: Contractor 15 to 21, Team Lead/Manager 31 to 45 · Below target: Contractor over 21, Team Lead/Manager over 45.'
     ]
   };
